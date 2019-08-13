@@ -49,12 +49,10 @@ install:
 # Build scripts
 build_script:
   - appveyor AddMessage "Compiling radare2 %R2_VERSION% (%builder%)"
-  
+
 test_script:
   - set PATH=%APPVEYOR_BUILD_FOLDER%\%DIST_FOLDER%\bin;C:\msys64\mingw64\bin;%PATH%
   - echo %PATH%
-  - where radare2
-  - radare2 -v
   - ps: Install-Product node $env:nodejs_version
   - node --version
   - git clone https://github.com/radare/radare2-regressions
