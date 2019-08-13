@@ -61,7 +61,7 @@ test_script:
   - echo pull_owner %pull_owner%
   - echo APPVEYOR_PULL_REQUEST_HEAD_REPO_BRANCH %APPVEYOR_PULL_REQUEST_HEAD_REPO_BRANCH%
   - echo APPVEYOR_PULL_REQUEST_HEAD_REPO_NAME %APPVEYOR_PULL_REQUEST_HEAD_REPO_NAME%
-  - git pull -f https://github.com/%pull_owner%/radare2-regressions %APPVEYOR_PULL_REQUEST_HEAD_REPO_BRANCH%:%APPVEYOR_PULL_REQUEST_HEAD_REPO_BRANCH% && git checkout %APPVEYOR_PULL_REQUEST_HEAD_REPO_BRANCH% || (echo Using master & exit /b 0)
+  - git fetch https://github.com/%pull_owner%/radare2-regressions %APPVEYOR_PULL_REQUEST_HEAD_REPO_BRANCH%:%APPVEYOR_PULL_REQUEST_HEAD_REPO_BRANCH% && git checkout %APPVEYOR_PULL_REQUEST_HEAD_REPO_BRANCH% || (echo Using master & exit /b 0)
   - npm install
   - set NOOK=1
   - node_modules/.bin/r2r
