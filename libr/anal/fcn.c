@@ -833,7 +833,13 @@ repeat:
 		}
 		if (is_x86 && fcn->bp_frame) {
 			if (__does_op_use_bp (anal, &op)) {
-				r_anal_var_delete_all (anal, fcn->addr, 'b');
+				RAnalVar *v;
+				RListIter *iter;
+				RList *list = r_anal_var_list (anal, fcn, 'b');
+				r_list_foreach (list, iter, v) {
+					r_anal_var_delete (anal, addr, 'b', 1, v->delta);
+				}
+				r_list_free (list);
 				fcn->bp_frame = false;
 			}
 		}
