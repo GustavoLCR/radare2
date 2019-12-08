@@ -681,6 +681,8 @@ typedef struct {
 	ut64 leaddr;
 } leaddr_pair;
 
+static bool __does_op_use_bp(RAnal *anal, RAnalOp *op);
+
 static int fcn_recurse(RAnal *anal, RAnalFunction *fcn, ut64 addr, ut64 len, int depth) {
 	const int continue_after_jump = anal->opt.afterjmp;
 	const int addrbytes = anal->iob.io ? anal->iob.io->addrbytes : 1;
@@ -828,6 +830,12 @@ repeat:
 			// gotoBeach (R_ANAL_RET_ERROR);
 			// RET_END causes infinite loops somehow
 			gotoBeach (R_ANAL_RET_END);
+		}
+		if (is_x86 && fcn->bp_frame) {
+			if (__does_op_use_bp (anal, &op)) {
+				r_anal_var_delete_all (anal, fcn->addr, 'b');
+				fcn->bp_frame = false;
+			}
 		}
 		if (anal->opt.nopskip && fcn->addr == at) {
 			RFlagItem *fi = anal->flb.get_at (anal->flb.f, addr, false);
@@ -1521,6 +1529,7 @@ R_API int r_anal_fcn(RAnal *anal, RAnalFunction *fcn, ut64 addr, ut64 len, int r
 	RList *list = r_meta_find_list_in (anal, addr, -1, 4);
 	RListIter *iter;
 	RAnalMetaItem *meta;
+	bool is_x86 = (anal->cur && anal->cur->arch && !strcmp (anal->cur->arch, "x86"));
 	r_list_foreach (list, iter, meta) {
 		switch (meta->type) {
 		case R_META_TYPE_DATA:
@@ -1569,7 +1578,6 @@ R_API int r_anal_fcn(RAnal *anal, RAnalFunction *fcn, ut64 addr, ut64 len, int r
 		RListIter *iter;
 		RAnalBlock *bb;
 		ut64 endaddr = fcn->addr;
-		const bool is_x86 = anal->cur->arch && !strcmp (anal->cur->arch, "x86");
 
 		// set function size as length of continuous sequence of bbs
 		r_list_sort (fcn->bbs, &cmpaddr);
@@ -2286,6 +2294,56 @@ static bool can_affect_bp(RAnal *anal, RAnalOp* op) {
 	}
 	return is_bp_dst;
 }
+
+static bool __does_op_use_bp(RAnal *anal, RAnalOp *op) {
+	char *pos;
+	char str_to_find[40] = "\"type\":\"reg\",\"value\":\"";
+	strcat (str_to_find, anal->reg->name[R_REG_NAME_BP]);
+	switch (op->type) {
+	case R_ANAL_OP_TYPE_MOV:
+		if (can_affect_bp (anal, op) && op->src[0] && op->src[0]->reg && op->src[0]->reg->name
+			&& strcmp (op->src[0]->reg->name, anal->reg->name[R_REG_NAME_SP])) {
+			return true;
+		}
+		break;
+	case R_ANAL_OP_TYPE_LEA:
+		if (can_affect_bp (anal, op)) {
+			return true;
+		}
+		break;
+	case R_ANAL_OP_TYPE_ADD:
+	case R_ANAL_OP_TYPE_AND:
+	case R_ANAL_OP_TYPE_CMOV:
+	case R_ANAL_OP_TYPE_NOT:
+	case R_ANAL_OP_TYPE_OR:
+	case R_ANAL_OP_TYPE_ROL:
+	case R_ANAL_OP_TYPE_ROR:
+	case R_ANAL_OP_TYPE_SAL:
+	case R_ANAL_OP_TYPE_SAR:
+	case R_ANAL_OP_TYPE_SHR:
+	case R_ANAL_OP_TYPE_SUB:
+	case R_ANAL_OP_TYPE_XOR:
+	case R_ANAL_OP_TYPE_SHL:
+		// op.dst is not filled for these operations, so for now,
+		// check for bp as dst looks like this; in the future it may be just replaced with call to can_affect_bp
+		pos = op->opex.ptr ? strstr (op->opex.ptr, str_to_find) : NULL;
+		if (pos && pos - op->opex.ptr < 60) {
+			return true;
+		}
+		break;
+	case R_ANAL_OP_TYPE_XCHG:
+		if (op->opex.ptr && strstr (op->opex.ptr, str_to_find)) {
+			return true;
+		}
+		break;
+	case R_ANAL_OP_TYPE_POP:
+		break;
+	default:
+		break;
+	}
+	return false;
+}
+
 /*
  * This function checks whether any operation in a given function may change bp (excluding "mov bp, sp"
  * and "pop bp" at the end).
@@ -2293,9 +2351,6 @@ static bool can_affect_bp(RAnal *anal, RAnalOp* op) {
 R_API void r_anal_fcn_check_bp_use(RAnal *anal, RAnalFunction *fcn) {
 	RListIter *iter;
 	RAnalBlock *bb;
-	char str_to_find[40] = "\"type\":\"reg\",\"value\":\"";
-	char *pos;
-	strcat (str_to_find, anal->reg->name[R_REG_NAME_BP]);
 	if (!fcn) {
 		return;
 	}
@@ -2313,46 +2368,10 @@ R_API void r_anal_fcn_check_bp_use(RAnal *anal, RAnalFunction *fcn) {
 			if (op.size < 1) {
 				op.size = 1;
 			}
-			switch (op.type) {
-			case R_ANAL_OP_TYPE_MOV:
-				if (can_affect_bp (anal, &op) && op.src[0] && op.src[0]->reg && op.src[0]->reg->name
-				&& strcmp (op.src[0]->reg->name, anal->reg->name[R_REG_NAME_SP])) {
-					fcn->bp_frame = false;
-				}
-				break;
-			case R_ANAL_OP_TYPE_LEA:
-				if (can_affect_bp (anal, &op)) {
-					fcn->bp_frame = false;
-				}
-				break;
-			case R_ANAL_OP_TYPE_ADD:
-			case R_ANAL_OP_TYPE_AND:
-			case R_ANAL_OP_TYPE_CMOV:
-			case R_ANAL_OP_TYPE_NOT:
-			case R_ANAL_OP_TYPE_OR:
-			case R_ANAL_OP_TYPE_ROL:
-			case R_ANAL_OP_TYPE_ROR:
-			case R_ANAL_OP_TYPE_SAL:
-			case R_ANAL_OP_TYPE_SAR:
-			case R_ANAL_OP_TYPE_SHR:
-			case R_ANAL_OP_TYPE_SUB:
-			case R_ANAL_OP_TYPE_XOR:
-			case R_ANAL_OP_TYPE_SHL:
-// op.dst is not filled for these operations, so for now, check for bp as dst looks like this; in the future it may be just replaced with call to can_affect_bp
- 				pos = op.opex.ptr ? strstr (op.opex.ptr, str_to_find) : NULL;
-				if (pos && pos - op.opex.ptr < 60) {
-					fcn->bp_frame = false;
-				}
-				break;
-			case R_ANAL_OP_TYPE_XCHG:
-				if (op.opex.ptr && strstr (op.opex.ptr, str_to_find)) {
-					fcn->bp_frame = false;
-    				}
-				break;
-			case R_ANAL_OP_TYPE_POP:
-				break;
-			default:
-				break;
+			if (__does_op_use_bp(anal, &op)) {
+				fcn->bp_frame = false;
+				r_anal_op_fini (&op);
+				return;
 			}
 			idx += op.size;
 			at += op.size;

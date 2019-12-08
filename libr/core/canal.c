@@ -905,12 +905,6 @@ static int core_anal_fcn(RCore *core, ut64 at, ut64 from, int reftype, int depth
 		}
 		free (next);
 	}
-	if (core->anal->cur && core->anal->cur->arch && !strcmp (core->anal->cur->arch, "x86")) {
-		r_anal_fcn_check_bp_use (core->anal, fcn);
-		if (fcn && !fcn->bp_frame) {
-			r_anal_var_delete_all (core->anal, fcn->addr, 'b');
-		}
-	}
 	r_anal_hint_free (hint);
 	return true;
 
@@ -950,12 +944,6 @@ error:
 				}
 				free (next);
 			}
-		}
-	}
-	if (core->anal->cur && core->anal->cur->arch && !strcmp (core->anal->cur->arch, "x86")) {
-		r_anal_fcn_check_bp_use (core->anal, fcn);
-		if (fcn && !fcn->bp_frame) {
-			r_anal_var_delete_all (core->anal, fcn->addr, 'b');
 		}
 	}
 	r_anal_hint_free (hint);
