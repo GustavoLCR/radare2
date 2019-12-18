@@ -280,16 +280,16 @@ static bool varsub(RParse *p, RAnalFunction *f, ut64 addr, int oplen, char *data
 		oldstr = r_str_newf (tmpf, r_num_abs(var->delta), anal->reg->name[R_REG_NAME_SP]);
 		if (ucase) {
 			char *comma = strchr (oldstr, ',');
-                        if (comma) {
-                                *comma = 0;
-                                r_str_case (oldstr, true);
-                                *comma = ',';
-                        }
-                }
+			if (comma) {
+				*comma = 0;
+				r_str_case (oldstr, true);
+				*comma = ',';
+			}
+		}
 		if (strstr (tstr, oldstr)) {
-			char *newstr = (p->localvar_only) ? r_str_newf ("(%s)", var->name):
+			char *newstr = (p->localvar_only) ? r_str_newf ("(%s)", var->name) :
 				r_str_newf ("%s%s(%s)", var->delta > 0 ? "" : "-",
-						var->name, anal->reg->name[R_REG_NAME_SP]);
+					var->name, anal->reg->name[R_REG_NAME_SP]);
 			tstr = r_str_replace (tstr, oldstr, newstr, 1);
 			free (newstr);
 			free (oldstr);
@@ -298,34 +298,37 @@ static bool varsub(RParse *p, RAnalFunction *f, ut64 addr, int oplen, char *data
 		free (oldstr);
 	}
 	r_list_foreach (bpargs, iter, var) {
-                char *tmpf = NULL;
-                if (var->delta < 10) {
-                        tmpf = "%d(%s)";
-                } else if (var->delta > 0) {
-                        tmpf = "0x%x(%s)";
-                } else {
-                        tmpf = "-0x%x(%s)";
-                }
-                oldstr = r_str_newf (tmpf, r_num_abs (var->delta),
+		if (p->get_ptr_at) {
+			var->delta = p->get_ptr_at (p->user, var, addr);
+		}
+		char *tmpf = NULL;
+		if (var->delta < 10) {
+			tmpf = "%d(%s)";
+		} else if (var->delta > 0) {
+			tmpf = "0x%x(%s)";
+		} else {
+			tmpf = "-0x%x(%s)";
+		}
+		oldstr = r_str_newf (tmpf, r_num_abs (var->delta),
 			anal->reg->name[R_REG_NAME_BP]);
-                if (ucase) {
-                        char *comma = strchr (oldstr, ',');
-                        if (comma) {
-                                *comma = 0;
-                                r_str_case (oldstr, true);
-                                *comma = ',';
-                        }
-                }
-                if (strstr (tstr, oldstr)) {
-                        char *newstr = (p->localvar_only) ? r_str_newf ("(%s)", var->name):
+		if (ucase) {
+			char *comma = strchr (oldstr, ',');
+			if (comma) {
+				*comma = 0;
+				r_str_case (oldstr, true);
+				*comma = ',';
+			}
+		}
+		if (strstr (tstr, oldstr)) {
+			char *newstr = (p->localvar_only) ? r_str_newf ("(%s)", var->name) :
 				r_str_newf ("%s%s(%s)", var->delta > 0 ? "" : "-",
-						var->name, anal->reg->name[R_REG_NAME_SP]);
-                        tstr = r_str_replace (tstr, oldstr, newstr, 1);
-                        free (newstr);
-                        free (oldstr);
-                        break;
-                }
-                free (oldstr);
+					var->name, anal->reg->name[R_REG_NAME_SP]);
+			tstr = r_str_replace (tstr, oldstr, newstr, 1);
+			free (newstr);
+			free (oldstr);
+			break;
+		}
+		free (oldstr);
 	}
 	bool ret = true;
 	if (len > strlen (tstr)) {

@@ -326,6 +326,9 @@ static bool varsub(RParse *p, RAnalFunction *f, ut64 addr, int oplen, char *data
 	r_list_foreach (bpargs, iter, var) {
 		char *reg = anal->reg->name[R_REG_NAME_BP];
 		char *tmplt = NULL;
+		if (p->get_ptr_at) {
+			var->delta = p->get_ptr_at (p->user, var, addr);
+		}
 		if (var->delta > -10 && var->delta < 10) {
 			if (p->pseudo) {
 				char sign = '+';

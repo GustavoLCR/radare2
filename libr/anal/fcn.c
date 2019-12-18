@@ -996,6 +996,15 @@ repeat:
 					movdisp = op.disp;
 				}
 			}
+			// mov bp, sp
+			{
+				const char *bp = r_reg_get_name (anal->reg, R_REG_NAME_BP);
+				const char *sp = r_reg_get_name (anal->reg, R_REG_NAME_SP);
+				const char *esil = r_strbuf_get (&op.esil);
+				if (sp && bp && !strcmp (esil, sdb_fmt ("%s,%s,=", sp, bp))) {
+					fcn->stackbp = fcn->stack;
+				}
+			}
 			if (anal->opt.hpskip && regs_exist (op.src[0], op.dst)
 			&& !strcmp (op.src[0]->reg->name, op.dst->reg->name)) {
 				skip_ret = skip_hp (anal, fcn, &op, bb, addr, tmp_buf, oplen, delay.un_idx, &idx);

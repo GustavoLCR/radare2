@@ -985,9 +985,11 @@ static int get_ptr_at(void *user, RAnalVar *var, ut64 addr) {
 		char *next = NULL, *ptr = vars;
 		sdb_anext (vars, &next);
 		while (ptr) {
+			char *dot = strchr (ptr, '.');
+			*dot = '\0';
 			ut64 off = r_num_math (NULL, ptr);
 			if (offset == off) {
-				int ret = atoi (strchr (ptr, '.') + 1);
+				int ret = atoi (dot + 1);
 				free (vars);
 				return ret;
 			}
@@ -1668,6 +1670,11 @@ static ut32 tmp_get_realsize (RAnalFunction *f) {
 
 static void ds_show_functions_argvar(RDisasmState *ds, RAnalVar *var, const char *base, bool is_var, char sign) {
 	int delta = sign == '+' ? var->delta : -var->delta;
+	if (var->kind == 's') {
+		delta = ds->fcn->maxstack - delta;
+	} else if (var->kind == 'b') {
+		delta -= ds->fcn->stackbp;
+	}
 	const char *pfx = is_var ? "var" : "arg", *constr = NULL;
 	RStrBuf *constr_buf = NULL;
 	bool cond = false;
@@ -5865,6 +5872,10 @@ R_API int r_core_print_disasm_instructions(RCore *core, int nb_bytes, int nb_opc
 	r_reg_arena_pop (core->anal->reg);
 
 	return len;
+}
+
+static RList *var_list_dynamic(RAnal *a, RAnalFunction *fcn, int kind) {
+
 }
 
 R_API int r_core_print_disasm_json(RCore *core, ut64 addr, ut8 *buf, int nb_bytes, int nb_opcodes, PJ *pj) {

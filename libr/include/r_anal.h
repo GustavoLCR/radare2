@@ -280,6 +280,7 @@ typedef struct r_anal_function_t {
 	char* attr; // __attribute__(()) list
 	ut64 addr;
 	ut64 rb_max_addr; // maximum of meta.min + _size - 1 in the subtree, for fcn interval tree
+	int stackbp;
 	int stack; //stack frame size
 	int maxstack;
 	int ninstr;

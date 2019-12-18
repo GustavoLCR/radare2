@@ -463,6 +463,9 @@ static bool varsub (RParse *p, RAnalFunction *f, ut64 addr, int oplen, char *dat
 	/* iterate over base pointer args/vars */
 	r_list_foreach (bpargs, bpargiter, bparg) {
 		char sign = '+';
+		if (p->get_ptr_at) {
+			bparg->delta = p->get_ptr_at (p->user, bparg, addr);
+		}
 		if (bparg->delta < 0) {
 			sign = '-';
 			bparg->delta = -bparg->delta;
