@@ -1671,7 +1671,7 @@ static ut32 tmp_get_realsize (RAnalFunction *f) {
 static void ds_show_functions_argvar(RDisasmState *ds, RAnalVar *var, const char *base, bool is_var, char sign) {
 	int delta = sign == '+' ? var->delta : -var->delta;
 	if (var->kind == 's') {
-		delta = ds->fcn->maxstack - delta;
+		delta = is_var ? ds->fcn->maxstack - delta : ds->fcn->maxstack + delta;
 	} else if (var->kind == 'b') {
 		delta -= ds->fcn->stackbp;
 	}
@@ -1968,12 +1968,9 @@ static void ds_show_functions(RDisasmState *ds) {
 					break;
 				case R_ANAL_VAR_KIND_SPV: {
 					bool is_var = !var->isarg;
-					int saved_delta = var->delta;
-					var->delta = f->maxstack + var->delta;
 					ds_show_functions_argvar (ds, var,
 						anal->reg->name[R_REG_NAME_SP],
 						is_var, '+');
-					var->delta = saved_delta;
 					}
 					break;
 				}
