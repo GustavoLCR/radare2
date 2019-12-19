@@ -680,13 +680,13 @@ static void extract_arg(RAnal *anal, RAnalFunction *fcn, RAnalOp *op, const char
 	}
 
 	int rw = (op->direction == R_ANAL_OP_DIR_WRITE) ? 1 : 0;
-	ut64 bp_off;
-	if (type == 's') {
-		bp_off = ptr - fcn->stack;
-	} else {
-		bp_off = -(fcn->stackbp + ptr);
-	}
+	ut64 bp_off = ptr;
 	if (*sign == '+') {
+		if (type == R_ANAL_VAR_KIND_SPV) {
+			bp_off = ptr - fcn->stack;
+		} else {
+			bp_off = ptr - fcn->stackbp;
+		}
 		const bool isarg = fcn->bp_frame && ((ptr >= fcn->stack) || (type != 's'));
 		const char *pfx = isarg ? ARGPREFIX : VARPREFIX;
 		char *varname = get_varname (anal, fcn, type, pfx, bp_off);
@@ -696,6 +696,11 @@ static void extract_arg(RAnal *anal, RAnalFunction *fcn, RAnalOp *op, const char
 			free (varname);
 		}
 	} else {
+		if (type == R_ANAL_VAR_KIND_SPV) {
+			bp_off = -fcn->stack + ptr;
+		} else {
+			bp_off = -(fcn->stackbp + ptr);
+		}
 		char *varname = get_varname (anal, fcn, type, VARPREFIX, bp_off);
 		if (varname) {
 			r_anal_var_add (anal, fcn->addr, 1, bp_off, type, NULL, anal->bits / 8, 0, varname);
@@ -978,6 +983,15 @@ R_API void r_anal_var_list_show(RAnal *anal, RAnalFunction *fcn, int kind, int m
 		if (var->kind != kind) {
 			continue;
 		}
+		const char *sign;
+		int delta;
+		if (kind == R_ANAL_VAR_KIND_SPV) {
+			sign = -var->delta <= fcn->maxstack ? "+" : "-";
+			delta = fcn->maxstack + var->delta;
+		} else if (kind == R_ANAL_VAR_KIND_BPV) {
+			sign = var->delta > -fcn->stackbp ? "+" : "-";
+			delta = fcn->stackbp + var->delta;
+		}
 		switch (mode) {
 		case '*':
 			// we can't express all type info here :(
@@ -1000,24 +1014,24 @@ R_API void r_anal_var_list_show(RAnal *anal, RAnalFunction *fcn, int kind, int m
 			case R_ANAL_VAR_KIND_BPV:
 				if (var->delta > 0) {
 					pj_o (pj);
-					pj_ks (pj, "name" ,var->name);
+					pj_ks (pj, "name", var->name);
 					pj_ks (pj, "kind", "arg");
 					pj_ks (pj, "type", var->type);
 					pj_k (pj, "ref");
 					pj_o (pj);
 					pj_ks (pj, "base", anal->reg->name[R_REG_NAME_BP]);
-					pj_kn (pj, "offset", (st64)var->delta);
+					pj_kn (pj, "offset", (st64)delta);
 					pj_end (pj);
 					pj_end (pj);
 				} else {
 					pj_o (pj);
-					pj_ks (pj, "name" ,var->name);
+					pj_ks (pj, "name", var->name);
 					pj_ks (pj, "kind", "var");
 					pj_ks (pj, "type", var->type);
 					pj_k (pj, "ref");
 					pj_o (pj);
 					pj_ks (pj, "base", anal->reg->name[R_REG_NAME_BP]);
-					pj_kn (pj, "offset", (st64)-R_ABS (var->delta));
+					pj_kn (pj, "offset", (st64)-delta);
 					pj_end (pj);
 					pj_end (pj);
 				}
@@ -1045,7 +1059,7 @@ R_API void r_anal_var_list_show(RAnal *anal, RAnalFunction *fcn, int kind, int m
 					pj_k (pj, "ref");
 					pj_o (pj);
 					pj_ks (pj, "base", anal->reg->name[R_REG_NAME_SP]);
-					pj_kn (pj, "offset", var->delta);
+					pj_kn (pj, "offset", delta);
 					pj_end (pj);
 					pj_end (pj);
 				} else {
@@ -1056,7 +1070,7 @@ R_API void r_anal_var_list_show(RAnal *anal, RAnalFunction *fcn, int kind, int m
 					pj_k (pj, "ref");
 					pj_o (pj);
 					pj_ks (pj, "base", anal->reg->name[R_REG_NAME_SP]);
-					pj_kn (pj, "offset", (st64)(-R_ABS (var->delta)));
+					pj_kn (pj, "offset", (st64)(-R_ABS (delta)));
 					pj_end (pj);
 					pj_end (pj);
 				}
@@ -1066,16 +1080,16 @@ R_API void r_anal_var_list_show(RAnal *anal, RAnalFunction *fcn, int kind, int m
 		default:
 			switch (kind) {
 			case R_ANAL_VAR_KIND_BPV:
-				if (var->delta > 0) {
-					anal->cb_printf ("arg %s %s @ %s+0x%x\n",
+				if (var->isarg) {
+					anal->cb_printf ("arg %s %s @ %s%s0x%x\n",
 						var->type, var->name,
-						anal->reg->name[R_REG_NAME_BP],
-						var->delta);
+						anal->reg->name[R_REG_NAME_BP], sign,
+						delta);
 				} else {
-					anal->cb_printf ("var %s %s @ %s-0x%x\n",
+					anal->cb_printf ("var %s %s @ %s%s0x%x\n",
 						var->type, var->name,
-						anal->reg->name[R_REG_NAME_BP],
-						-var->delta);
+						anal->reg->name[R_REG_NAME_BP], sign,
+						-delta);
 				}
 				break;
 			case R_ANAL_VAR_KIND_REG: {
@@ -1089,21 +1103,17 @@ R_API void r_anal_var_list_show(RAnal *anal, RAnalFunction *fcn, int kind, int m
 				}
 				break;
 			case R_ANAL_VAR_KIND_SPV:
-			{
-				int delta = fcn->maxstack + var->delta;
 				if (!var->isarg) {
-					anal->cb_printf ("var %s %s @ %s+0x%x\n",
+					anal->cb_printf ("var %s %s @ %s%s0x%x\n",
 						var->type, var->name,
-						anal->reg->name[R_REG_NAME_SP],
+						anal->reg->name[R_REG_NAME_SP], sign,
 						delta);
 				} else {
-					anal->cb_printf ("arg %s %s @ %s+0x%x\n",
+					anal->cb_printf ("arg %s %s @ %s%s0x%x\n",
 						var->type, var->name,
-						anal->reg->name[R_REG_NAME_SP],
+						anal->reg->name[R_REG_NAME_SP], sign,
 						delta);
-
 				}
-			}
 				break;
 			}
 		}

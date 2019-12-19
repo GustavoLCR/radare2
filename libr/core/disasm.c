@@ -1668,14 +1668,18 @@ static ut32 tmp_get_realsize (RAnalFunction *f) {
 	return (size > 0) ? size : r_anal_fcn_size (f);
 }
 
-static void ds_show_functions_argvar(RDisasmState *ds, RAnalVar *var, const char *base, bool is_var, char sign) {
-	int delta = sign == '+' ? var->delta : -var->delta;
-	if (var->kind == 's') {
-		delta = is_var ? ds->fcn->maxstack - delta : ds->fcn->maxstack + delta;
-	} else if (var->kind == 'b') {
-		delta -= ds->fcn->stackbp;
+static void ds_show_functions_argvar(RDisasmState *ds, RAnalVar *var, const char *base) {
+	char sign;
+	int delta;
+	if (var->kind == R_ANAL_VAR_KIND_SPV) {
+		sign = -var->delta <= ds->fcn->maxstack ? '+' : '-';
+		delta = ds->fcn->maxstack + var->delta;
+	} else if (var->kind == R_ANAL_VAR_KIND_BPV) {
+		sign = var->delta > -ds->fcn->stackbp ? '+' : '-';
+		delta = ds->fcn->stackbp + var->delta;
 	}
-	const char *pfx = is_var ? "var" : "arg", *constr = NULL;
+	delta = R_ABS (delta);
+	const char *pfx = var->isarg ? "arg" : "var", *constr = NULL;
 	RStrBuf *constr_buf = NULL;
 	bool cond = false;
 	if (ds->core && ds->core->anal) {
@@ -1940,10 +1944,8 @@ static void ds_show_functions(RDisasmState *ds) {
 				r_cons_printf ("%s; ", COLOR_ARG (ds, color_func_var));
 				switch (var->kind) {
 				case R_ANAL_VAR_KIND_BPV: {
-					char sign = var->delta > 0 ? '+' : '-';
-					bool is_var = !var->isarg;
 					ds_show_functions_argvar (ds, var,
-						anal->reg->name[R_REG_NAME_BP], is_var, sign);
+						anal->reg->name[R_REG_NAME_BP]);
 					}
 					break;
 				case R_ANAL_VAR_KIND_REG: {
@@ -1967,10 +1969,8 @@ static void ds_show_functions(RDisasmState *ds) {
 					}
 					break;
 				case R_ANAL_VAR_KIND_SPV: {
-					bool is_var = !var->isarg;
 					ds_show_functions_argvar (ds, var,
-						anal->reg->name[R_REG_NAME_SP],
-						is_var, '+');
+						anal->reg->name[R_REG_NAME_SP]);
 					}
 					break;
 				}

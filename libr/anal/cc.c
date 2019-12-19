@@ -90,6 +90,13 @@ R_API bool r_anal_cc_exist (RAnal *anal, const char *convention) {
 	return x && *x && !strcmp (x, "cc");
 }
 
+R_API bool r_anal_cc_callee_cleanup(RAnal *anal, const char *convention) {
+	r_return_val_if_fail (anal && convention, NULL);
+	const char *query = sdb_fmt ("cc.%s.cleanup", convention);
+	const char *ret = sdb_const_get (DB, query, 0);
+	return ret ? !strcmp (ret, "callee") : false;
+}
+
 R_API const char *r_anal_cc_arg(RAnal *anal, const char *convention, int n) {
 	r_return_val_if_fail (anal && convention, NULL);
 	if (n < 0) {

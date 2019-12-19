@@ -757,6 +757,7 @@ static int fcn_recurse(RAnal *anal, RAnalFunction *fcn, ut64 addr, ut64 len, int
 	}
 	static ut64 lea_jmptbl_ip = UT64_MAX;
 	char *last_reg_mov_lea_name = NULL;
+	RAnalFunction *calee = NULL;
 	ut64 last_reg_mov_lea_val = UT64_MAX;
 	bool last_is_reg_mov_lea = false;
 	bool last_is_push = false;
@@ -1244,12 +1245,11 @@ repeat:
 		case R_ANAL_OP_TYPE_IRCALL:
 			/* call [dst] */
 			// XXX: this is TYPE_MCALL or indirect-call
-			(void) r_anal_xrefs_set (anal, op.addr, op.ptr, R_ANAL_REF_TYPE_CALL);
-
+			(void)r_anal_xrefs_set (anal, op.addr, op.ptr, R_ANAL_REF_TYPE_CALL);
+			calee = r_anal_get_fcn_at (anal, op.ptr, 0);
 			if (op.ptr != UT64_MAX && r_anal_noreturn_at (anal, op.ptr)) {
-				RAnalFunction *f = r_anal_get_fcn_at (anal, op.ptr, 0);
-				if (f) {
-					f->is_noreturn = true;
+				if (calee) {
+					calee->is_noreturn = true;
 				}
 				gotoBeach (R_ANAL_RET_END);
 			}
@@ -1258,11 +1258,10 @@ repeat:
 		case R_ANAL_OP_TYPE_CALL:
 			/* call dst */
 			(void) r_anal_xrefs_set (anal, op.addr, op.jump, R_ANAL_REF_TYPE_CALL);
-
+			calee = r_anal_get_fcn_at (anal, op.jump, 0);
 			if (r_anal_noreturn_at (anal, op.jump)) {
-				RAnalFunction *f = r_anal_get_fcn_at (anal, op.jump, 0);
-				if (f) {
-					f->is_noreturn = true;
+				if (calee) {
+					calee->is_noreturn = true;
 				}
 				gotoBeach (R_ANAL_RET_END);
 			}
@@ -1402,6 +1401,7 @@ analopfinish:
 				ret = r_anal_fcn_bb (anal, fcn, op.jump, depth);
 				goto beach;
 			}
+			fcn->stack_unwind = op.stackptr;
 			if (!op.cond) {
 				if (anal->verbose) {
 					eprintf ("RET 0x%08"PFMT64x ". overlap=%s %d %d\n",
@@ -1412,15 +1412,26 @@ analopfinish:
 			}
 			break;
 		}
-		if (op.type != R_ANAL_OP_TYPE_MOV && op.type != R_ANAL_OP_TYPE_CMOV && op.type != R_ANAL_OP_TYPE_LEA) {
+		ut32 type = op.type & R_ANAL_OP_TYPE_MASK;
+		if (type != R_ANAL_OP_TYPE_MOV && type != R_ANAL_OP_TYPE_CMOV && type != R_ANAL_OP_TYPE_LEA) {
 			last_is_reg_mov_lea = false;
 		}
-		if (op.type != R_ANAL_OP_TYPE_PUSH && op.type != R_ANAL_OP_TYPE_RPUSH) {
+		if (type != R_ANAL_OP_TYPE_PUSH && type != R_ANAL_OP_TYPE_RPUSH) {
 			last_is_push = false;
 		}
 		if (is_arm && op.type != R_ANAL_OP_TYPE_MOV) {
 			last_is_mov_lr_pc = false;
 		}
+		if (calee && calee->cc && (type & R_ANAL_OP_TYPE_CALL || type & R_ANAL_OP_TYPE_UCALL)) {
+			if (r_anal_cc_callee_cleanup (anal, calee->cc)) {
+				if (fcn->stack == fcn->maxstack) {
+					fcn->maxstack += calee->stack_unwind;
+				}
+				fcn->stack += calee->stack_unwind;
+				bb->stackptr += calee->stack_unwind;
+			}	
+		}
+		calee = NULL;
 	}
 beach:
 	r_anal_op_fini (&op);

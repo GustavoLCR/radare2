@@ -2,6 +2,7 @@ default.cc=cdecl
 
 cdecl=cc
 cc.cdecl.argn=stack
+cc.cdecl.cleanup=caller
 cc.cdecl.ret=eax
 
 cdecl-thiscall-ms=cc
@@ -18,12 +19,14 @@ cc.optlink.ret=eax
 
 stdcall=cc
 cc.stdcall.argn=stack
+cc.stdcall.cleanup=callee
 cc.stdcall.ret=eax
 
 fastcall=cc
 cc.fastcall.arg0=ecx
 cc.fastcall.arg1=edx
 cc.fastcall.argn=stack
+cc.fastcall.cleanup=callee
 cc.fastcall.ret=eax
 
 borland=cc
@@ -31,6 +34,7 @@ cc.borland.arg0=eax
 cc.borland.arg1=edx
 cc.borland.arg2=ecx
 cc.borland.argn=stack_rev
+cc.borland.cleanup=callee
 
 watcom=cc
 cc.watcom.arg0=eax
@@ -38,6 +42,8 @@ cc.watcom.arg1=edx
 cc.watcom.arg2=ebx
 cc.watcom.arg3=ecx
 cc.watcom.argn=stack
+cc.watcom.cleanup=callee
 
 pascal=cc
 cc.pascal.argn=stack_rev
+cc.pascal.cleanup=callee
