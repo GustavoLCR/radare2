@@ -952,7 +952,7 @@ static bool __rebase_refs(void *user, const ut64 k, const void *v) {
 	return true;
 }
 
-static void __rebase_everything(RCore *core, RList *old_sections, ut64 old_base) {
+static void __rebase_everything(RCore *core, RList *old_sections, ut64 old_base, RList *old_regs) {
 	RListIter *it, *itit, *ititit;
 	RAnalFunction *fcn;
 	ut64 new_base = core->bin->cur->o->baddr_shift;
@@ -974,6 +974,17 @@ static void __rebase_everything(RCore *core, RList *old_sections, ut64 old_base)
 				char *access = sdb_get (core->anal->sdb_fcns, var_access, NULL);
 				r_anal_var_delete (core->anal, var->addr, var->kind, 1, var->delta);
 				var->addr += diff;
+				if (old_regs && var->kind == 'r') {
+					char *reg_name = r_list_get_n (old_regs, var->delta);
+					if (!reg_name) {
+						continue;
+					}
+					RRegItem *reg = r_reg_get (core->anal->reg, reg_name, -1);
+					if (!reg) {
+						continue;
+					}
+					var->delta = reg->index;
+				}
 				r_anal_var_add (core->anal, var->addr, 1, var->delta, var->kind, var->type, var->size, var->isarg, var->name);
 				var_access = sdb_fmt ("var.0x%"PFMT64x ".%d.%d.access", var->addr, 1, var->delta);
 				sdb_set (core->anal->sdb_fcns, var_access, access, NULL);
@@ -1048,6 +1059,16 @@ static void __rebase_everything(RCore *core, RList *old_sections, ut64 old_base)
 	r_debug_bp_rebase (core->dbg, new_base);
 }
 
+static RList *__save_old_regs(RAnal *anal) {
+	RList *ret = r_list_newf ((RListFree)free);
+	RRegItem *reg;
+	RListIter *it;
+	r_list_foreach (anal->reg->allregs, it, reg) {
+		r_list_append (ret, strdup (reg->name));
+	}
+	return ret;
+}
+
 R_API void r_core_file_reopen_remote_debug(RCore *core, char *uri, ut64 addr) {
 	RCoreFile *ofile = core->file;
 	RIODesc *desc;
@@ -1060,6 +1081,7 @@ R_API void r_core_file_reopen_remote_debug(RCore *core, char *uri, ut64 addr) {
 	}
 
 	RList *old_sections = __save_old_sections (core);
+	RList *old_regs = __save_old_regs (core->anal);
 	ut64 old_base = core->bin->cur->o->baddr_shift;
 	int bits = core->assembler->bits;
 	r_config_set_i (core->config, "asm.bits", bits);
@@ -1087,8 +1109,9 @@ R_API void r_core_file_reopen_remote_debug(RCore *core, char *uri, ut64 addr) {
 	}
 	r_core_block_read (core);
 	if (r_config_get_i (core->config, "dbg.rebase")) {
-		__rebase_everything (core, old_sections, old_base);
+		__rebase_everything (core, old_sections, old_base, old_regs);
 	}
+	r_list_free (old_regs);
 	r_list_free (old_sections);
 	r_core_cmd0 (core, "sr PC");
 }
@@ -1136,7 +1159,7 @@ R_API void r_core_file_reopen_debug(RCore *core, const char *args) {
 	r_config_set_i (core->config, "cfg.debug", true);
 	r_core_file_reopen (core, newfile, 0, 2);
 	if (r_config_get_i (core->config, "dbg.rebase")) {
-		__rebase_everything (core, old_sections, old_base);
+		__rebase_everything (core, old_sections, old_base, NULL);
 	}
 	r_list_free (old_sections);
 	r_core_cmd0 (core, "sr PC");
@@ -1738,7 +1761,7 @@ static int cmd_open(void *data, const char *input) {
 						r_core_cmdf (core, "o %s", file);
 
 						r_core_block_read (core);
-						__rebase_everything (core, orig_sections, orig_baddr);
+						__rebase_everything (core, orig_sections, orig_baddr, NULL);
 						r_list_free (orig_sections);
 						free (file);
 					} else {

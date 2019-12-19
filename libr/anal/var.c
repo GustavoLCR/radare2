@@ -12,9 +12,10 @@ struct VarType {
 	char *type;
 	int size;
 	char *name;
+	int argnum;
 };
 
-#define SDB_VARTYPE_FMT "bzdz"
+#define SDB_VARTYPE_FMT "bzdzd"
 
 #define EXISTS(x, ...) snprintf (key, sizeof (key) - 1, x, ## __VA_ARGS__), sdb_exists (DB, key)
 #define SETKEY(x, ...) snprintf (key, sizeof (key) - 1, x, ## __VA_ARGS__);
@@ -92,16 +93,34 @@ R_API bool r_anal_var_add(RAnal *a, ut64 addr, int scope, int delta, char kind, 
 			type = "int32_t";
 		}
 	}
+	int argnum = 0;
 	switch (kind) {
+	case R_ANAL_VAR_KIND_REG: // registers args
+		if (isarg) {
+			RRegItem *reg = r_reg_index_get (a->reg, delta);
+			int i;
+			RAnalFunction *fcn = r_anal_get_fcn_at (a, addr, R_ANAL_FCN_TYPE_ANY);
+			int arg_max = fcn && fcn->cc ? r_anal_cc_max_arg (a, fcn->cc) : 0;
+			bool found = false;
+			for (i = 0; i < arg_max; i++) {
+				if (!strcmp (reg->name, r_anal_cc_arg (a, fcn->cc, i))) {
+					argnum = i;
+					found = true;
+					break;
+				}
+			}
+			if (!found) {
+				argnum = delta;
+			}
+		}
 	case R_ANAL_VAR_KIND_BPV: // base pointer var/args
 	case R_ANAL_VAR_KIND_SPV: // stack pointer var/args
-	case R_ANAL_VAR_KIND_REG: // registers args
 		break;
 	default:
 		eprintf ("Invalid var kind '%c'\n", kind);
 		return false;
 	}
-	const char *var_def = sdb_fmt ("%d,%s,%d,%s", isarg, type, size, name);
+	const char *var_def = sdb_fmt ("%d,%s,%d,%s,%d", isarg, type, size, name, argnum);
 	if (scope > 0) {
 		const char *sign = "";
 		if (delta < 0) {
@@ -887,22 +906,7 @@ static RList *var_generate_list(RAnal *a, RAnalFunction *fcn, int kind, bool dyn
 				av->isarg = vt.isarg;
 				av->size = vt.size;
 				av->type = strdup (vt.type);
-				if (av->isarg && kind == 'r') {
-					RRegItem *reg = r_reg_index_get (a->reg, delta);
-					int i;
-					int arg_max = fcn->cc ? r_anal_cc_max_arg (a, fcn->cc) : 0;
-					bool found = false;
-					for (i = 0; i < arg_max; i++) {
-						if (!strcmp (reg->name, r_anal_cc_arg (a, fcn->cc, i))) {
-							av->argnum = i;
-							found = true;
-							break;
-						}
-					}
-					if (!found) {
-						av->argnum = delta;
-					}
-				}
+				av->argnum = vt.argnum;
 				r_list_append (list, av);
 				if (dynamicVars) { // make dynamic variables like structure fields
 					var_add_structure_fields_to_list (a, av, vt.name, delta, list);
