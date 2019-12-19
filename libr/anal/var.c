@@ -701,7 +701,7 @@ static void extract_arg(RAnal *anal, RAnalFunction *fcn, RAnalOp *op, const char
 		} else {
 			bp_off = -(fcn->stackbp + ptr);
 		}
-		char *varname = get_varname (anal, fcn, type, VARPREFIX, ptr);
+		char *varname = get_varname (anal, fcn, type, VARPREFIX, -ptr);
 		if (varname) {
 			r_anal_var_add (anal, fcn->addr, 1, bp_off, type, NULL, anal->bits / 8, 0, varname);
 			r_anal_var_access (anal, fcn->addr, type, 1, bp_off, -ptr, rw, op->addr);
