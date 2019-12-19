@@ -687,7 +687,7 @@ static void extract_arg(RAnal *anal, RAnalFunction *fcn, RAnalOp *op, const char
 		} else {
 			bp_off = ptr - fcn->stackbp;
 		}
-		const bool isarg = fcn->bp_frame && ((ptr >= fcn->stack) || (type != 's'));
+		const bool isarg = fcn->bp_frame && ((ptr >= fcn->stack) || (type != 's' && ptr >= fcn->stackbp));
 		const char *pfx = isarg ? ARGPREFIX : VARPREFIX;
 		char *varname = get_varname (anal, fcn, type, pfx, bp_off);
 		if (varname) {
@@ -697,11 +697,11 @@ static void extract_arg(RAnal *anal, RAnalFunction *fcn, RAnalOp *op, const char
 		}
 	} else {
 		if (type == R_ANAL_VAR_KIND_SPV) {
-			bp_off = -fcn->stack + ptr;
+			bp_off = -(fcn->stack + ptr);
 		} else {
 			bp_off = -(fcn->stackbp + ptr);
 		}
-		char *varname = get_varname (anal, fcn, type, VARPREFIX, bp_off);
+		char *varname = get_varname (anal, fcn, type, VARPREFIX, R_ABS (ptr));
 		if (varname) {
 			r_anal_var_add (anal, fcn->addr, 1, bp_off, type, NULL, anal->bits / 8, 0, varname);
 			r_anal_var_access (anal, fcn->addr, type, 1, bp_off, -ptr, rw, op->addr);
