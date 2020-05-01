@@ -4,7 +4,6 @@
 #include <r_cons.h>
 #include <assert.h>
 
-#define WORKERS_DEFAULT        8
 #define RADARE2_CMD_DEFAULT    "radare2"
 #define RASM2_CMD_DEFAULT      "rasm2"
 #define JSON_TEST_FILE_DEFAULT "bins/elf/crackme0x00b"

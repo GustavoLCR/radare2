@@ -23,6 +23,7 @@
 #define R2R_ARCH "unknown"
 #endif
 
+#define WORKERS_DEFAULT 8
 #define R2R_ARCH_OS R2R_OS"-"R2R_ARCH
 
 typedef struct r2r_cmd_test_string_record {
