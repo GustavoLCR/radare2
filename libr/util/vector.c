@@ -23,6 +23,7 @@
 		if (!new_a) { \
 			return NULL; \
 		} \
+		memset ((ut8 *)new_a + vec->elem_size * vec->capacity, 0, vec->elem_size * (new_capacity - vec->capacity)); \
 		vec->a = new_a; \
 		vec->capacity = new_capacity; \
 	} while (0)
