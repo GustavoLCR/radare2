@@ -104,7 +104,7 @@ typedef void (*free_func)(void *);
 typedef void (*get_value_name)(void *type, char **res_name);
 typedef void (*get_value)(void *type, int *res);
 typedef void (*get_value_name_len)(void *type, int *res);
-typedef void (*get_member_list)(void *type, RPVector *l);
+typedef void (*get_member_list)(void *type, RPVector **l);
 typedef int (*get_arg_type_)(void *type, void **ret_type);
 typedef int (*get_val_type)(void *type, void **ret_type);
 

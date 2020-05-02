@@ -854,7 +854,7 @@ int build_flags_format_and_members_field(R_PDB *pdb, ELeafType lt, char *name, c
 
 int alloc_format_flag_and_member_fields(RPVector *ptmp, char **flags_format_field, int *members_amount, char ***members_name_field) {
 	if (!ptmp) {
-		return;
+		return 0;
 	}
 	int i = 0, size = 0;
 
@@ -935,7 +935,7 @@ static void print_types(R_PDB *pdb, int mode) {
 				tf->get_val (tf, &val);
 			}
 			if (tf->get_members) {
-				tf->get_members (tf, &ptmp);
+				tf->get_members (tf, ptmp);
 			}
 			// pdb->cb_printf ("%s: size 0x%x\n", name, val);
 			switch (mode) {
