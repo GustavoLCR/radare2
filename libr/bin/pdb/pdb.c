@@ -935,7 +935,7 @@ static void print_types(R_PDB *pdb, int mode) {
 				tf->get_val (tf, &val);
 			}
 			if (tf->get_members) {
-				tf->get_members (tf, ptmp);
+				tf->get_members (tf, &ptmp);
 			}
 			// pdb->cb_printf ("%s: size 0x%x\n", name, val);
 			switch (mode) {
