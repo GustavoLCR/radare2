@@ -173,7 +173,7 @@ static inline size_t r_pvector_len(const RPVector *vec) {
 }
 
 static inline void *r_pvector_at(const RPVector *vec, size_t index) {
-	return ((void **)vec->v.a)[index];
+	return index < vec->v.capacity ? ((void **)vec->v.a)[index] : NULL;
 }
 
 static inline void r_pvector_set(RPVector *vec, size_t index, void *e) {
