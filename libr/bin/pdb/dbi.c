@@ -10,14 +10,14 @@ static void free_dbi_stream(void *stream) {
 	SDbiStream *t = (SDbiStream *) stream;
 	SDBIExHeader *dbi_ex_header = 0;
 
-	RListIter *it = r_list_iterator(t->dbiexhdrs);
-	while (r_list_iter_next(it)) {
-		dbi_ex_header = (SDBIExHeader *) r_list_iter_get(it);
+	void **it;
+	r_pvector_foreach (&t->dbiexhdrs, it) {
+		dbi_ex_header = (SDBIExHeader *) *it;
 		free(dbi_ex_header->modName.name);
 		free(dbi_ex_header->objName.name);
 		free(dbi_ex_header);
 	}
-	r_list_free (t->dbiexhdrs);
+	r_pvector_fini (&t->dbiexhdrs);
 }
 
 ///////////////////////////////////////////////////////////////////////////////
@@ -136,7 +136,7 @@ void parse_dbi_stream(void *parsed_pdb_stream, R_STREAM_FILE *stream_file) {
 	}
 	stream_file_read (stream_file, size, dbiexhdr_data);
 
-	dbi_stream->dbiexhdrs = r_list_new ();
+	r_pvector_init (&dbi_stream->dbiexhdrs, NULL);
 	p_tmp = dbiexhdr_data;
 	while (i < size) {
 		dbi_ex_header = (SDBIExHeader *) malloc (sizeof(SDBIExHeader));
@@ -150,7 +150,7 @@ void parse_dbi_stream(void *parsed_pdb_stream, R_STREAM_FILE *stream_file) {
 		}
 		i += sz;
 		p_tmp += sz;
-		r_list_append (dbi_stream->dbiexhdrs, dbi_ex_header);
+		r_pvector_push (&dbi_stream->dbiexhdrs, dbi_ex_header);
 	}
 
 	free (dbiexhdr_data);

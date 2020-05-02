@@ -1,7 +1,6 @@
 #ifndef R2_PDB_H
 #define R2_PDB_H
 
-#define _R_LIST_C
 #include "r_util.h"
 #include <stdio.h>
 
@@ -22,8 +21,8 @@ typedef struct R_PDB {
 	PrintfCallback cb_printf;
 	struct R_PDB7_ROOT_STREAM *root_stream;
 	void *stream_map;
-	RList *pdb_streams;
-	RList *pdb_streams2;
+	RPVector pdb_streams;
+	RPVector pdb_streams2;
 	RBuffer *buf; // mmap of file
 //	int curr;
 

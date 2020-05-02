@@ -27,7 +27,7 @@ void parse_omap_stream(void *stream, R_STREAM_FILE *stream_file) {
 
 	omap_stream = (SOmapStream *) stream;
 	omap_stream->froms = 0;
-	omap_stream->omap_entries = r_list_new ();
+	r_pvector_init (&omap_stream->omap_entries, NULL);
 	ptmp = data;
 	while (read_bytes < data_size) {
 		omap_entry = (SOmapEntry *) malloc (sizeof(SOmapEntry));
@@ -40,7 +40,7 @@ void parse_omap_stream(void *stream, R_STREAM_FILE *stream_file) {
 			break;
 		}
 		ptmp += curr_read_bytes;
-		r_list_append (omap_stream->omap_entries, omap_entry);
+		r_pvector_push (&omap_stream->omap_entries, omap_entry);
 	}
 
 	free (data);
@@ -49,12 +49,12 @@ void parse_omap_stream(void *stream, R_STREAM_FILE *stream_file) {
 void free_omap_stream(void *stream) {
 	SOmapStream *omap_stream = (SOmapStream *) stream;
 	SOmapEntry *omap_entry = NULL;
-	RListIter *it = r_list_iterator (omap_stream->omap_entries);
-	while (r_list_iter_next (it)) {
-		omap_entry = (SOmapEntry *) r_list_iter_get (it);
+	void **it;
+	r_pvector_foreach (&omap_stream->omap_entries, it) {
+		omap_entry = (SOmapEntry *) *it;
 		free (omap_entry);
 	}
-	r_list_free (omap_stream->omap_entries);
+	r_pvector_fini (&omap_stream->omap_entries);
 }
 
 // inclusive indices
@@ -89,7 +89,7 @@ static int binary_search(unsigned int *A, int key, int imin, int imax) {
 int omap_remap(void *stream, int address) {
 	SOmapStream *omap_stream = (SOmapStream *) stream;
 	SOmapEntry *omap_entry = 0;
-	RListIter *it = 0;
+	void **it;
 	int i = 0;
 	int pos = 0;
 	int len = 0;
@@ -98,16 +98,15 @@ int omap_remap(void *stream, int address) {
 		return address;
 	}
 
-	len = r_list_length (omap_stream->omap_entries);
+	len = r_pvector_len (&omap_stream->omap_entries);
 
 	if (omap_stream->froms == 0) {
 		omap_stream->froms = (unsigned int *) malloc (4 * len);
 		if (!omap_stream->froms) {
 			return -1;
 		}
-		it = r_list_iterator (omap_stream->omap_entries);
-		while (r_list_iter_next (it)) {
-			omap_entry = (SOmapEntry *) r_list_iter_get (it);
+		r_pvector_foreach (&omap_stream->omap_entries, it) {
+			omap_entry = (SOmapEntry *) *it;
 			omap_stream->froms[i] = omap_entry->from;
 			i++;
 		}
@@ -123,7 +122,7 @@ int omap_remap(void *stream, int address) {
 	if (omap_stream->froms[pos] != address) {
 		pos -= 1;
 	}
-	omap_entry = (SOmapEntry *) r_list_get_n (omap_stream->omap_entries, pos);
+	omap_entry = (SOmapEntry *) r_pvector_at (&omap_stream->omap_entries, pos);
 	if (!omap_entry) {
 		return -1;
 	}

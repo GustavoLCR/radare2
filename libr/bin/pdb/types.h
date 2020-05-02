@@ -1,7 +1,6 @@
 #ifndef PDB_TYPES_H
 #define PDB_TYPES_H
 
-#define _R_LIST_C
 #include <r_util.h>
 
 #define READ_PAGE_FAIL 0x01
@@ -105,7 +104,7 @@ typedef void (*free_func)(void *);
 typedef void (*get_value_name)(void *type, char **res_name);
 typedef void (*get_value)(void *type, int *res);
 typedef void (*get_value_name_len)(void *type, int *res);
-typedef void (*get_member_list)(void *type, RList **l);
+typedef void (*get_member_list)(void *type, RPVector *l);
 typedef int (*get_arg_type_)(void *type, void **ret_type);
 typedef int (*get_val_type)(void *type, void **ret_type);
 
@@ -635,7 +634,7 @@ typedef struct {
 typedef struct R_PDB7_ROOT_STREAM{
 	R_PDB_STREAM pdb_stream;
 	int num_streams;
-	RList *streams_list;
+	RPVector streams_list;
 } R_PDB7_ROOT_STREAM;
 
 typedef enum EStream_{
@@ -827,7 +826,7 @@ typedef struct {
 
 typedef struct {
 //	ELeafType leaf_type;
-	RList *substructs;
+	RPVector substructs;
 } SLF_FIELDLIST;
 
 typedef struct {
@@ -1052,7 +1051,7 @@ typedef struct {
 
 typedef struct {
 	STPIHeader header;
-	RList *types;
+	RPVector types;
 
 	free_func free_;
 } STpiStream;
@@ -1158,7 +1157,7 @@ typedef struct {
 typedef struct {
 	SDBIHeader dbi_header;
 	SDbiDbgHeader dbg_header;
-	RList *dbiexhdrs;
+	RPVector dbiexhdrs;
 
 	free_func free_;
 } SDbiStream;
@@ -1187,7 +1186,7 @@ typedef struct {
 }) SFPO_DATA;
 
 typedef struct {
-	RList *fpo_data_list;
+	RPVector fpo_data_list;
 } SFPOStream;
 
 typedef enum {
@@ -1211,13 +1210,13 @@ typedef struct {
 }) SFPO_DATA_V2;
 
 typedef struct {
-	RList *fpo_data_list;
+	RPVector fpo_data_list;
 } SFPONewStream;
 // end of FPO stream structures
 
 // GDATA structrens
 typedef struct {
-	RList *globals_list;
+	RPVector globals_list;
 } SGDATAStream;
 
 R_PACKED (
@@ -1254,7 +1253,7 @@ typedef struct {
 }) SIMAGE_SECTION_HEADER;
 
 typedef struct {
-	RList *sections_hdrs;
+	RPVector sections_hdrs;
 } SPEStream;
 // end PE stream structures
 
@@ -1265,7 +1264,7 @@ typedef struct {
 } SOmapEntry;
 
 typedef struct {
-	RList *omap_entries;
+	RPVector omap_entries;
 	ut32 *froms;
 } SOmapStream;
 // end of omap structures

@@ -3,7 +3,7 @@
 #include "stream_file.h"
 
 static unsigned int base_idx = 0;
-static RList *p_types_list;
+static RPVector *p_types_list;
 
 static void print_base_type(EBASE_TYPES base_type, char **name) {
 	switch (base_type) {
@@ -195,7 +195,7 @@ static void get_sval_name(SVal *val, char **name) {
 //{
 //	STypeInfo *t = (STypeInfo *) type;
 //	SLF_ARGLIST *lf_arglist = (SLF_ARGLIST *) t->type_info;
-//	RList *l = (RList *) *arglist_type;
+//	RPVector *l = (RPVector *) *arglist_type;
 //	int i = 0;
 //	int tmp = 0;
 
@@ -203,9 +203,9 @@ static void get_sval_name(SVal *val, char **name) {
 //		tmp = lf_arglist->arg_type[i];
 //		if (tmp < base_idx) {
 //			// 0 - means NO_TYPE
-//			r_list_append(l, 0);
+//			r_pvector_push(l, 0);
 //		} else {
-//			r_list_append(l, r_list_get_n(p_types_list, (tmp - base_idx)));
+//			r_pvector_push(l, r_pvector_at (p_types_list, (tmp - base_idx)));
 //		}
 //	}
 //}
@@ -236,7 +236,7 @@ static int get_array_element_type(void *type, void **ret_type) {
 		*ret_type = 0;
 	} else {
 		curr_idx -= base_idx;
-		*ret_type = r_list_get_n(p_types_list, curr_idx);
+		*ret_type = r_pvector_at (p_types_list, curr_idx);
 	}
 
 	return curr_idx;
@@ -252,7 +252,7 @@ static int get_array_index_type(void *type, void **ret_type) {
 		*ret_type = 0;
 	} else {
 		curr_idx -= base_idx;
-		*ret_type = r_list_get_n(p_types_list, curr_idx);
+		*ret_type = r_pvector_at (p_types_list, curr_idx);
 	}
 
 	return curr_idx;
@@ -268,7 +268,7 @@ static int get_bitfield_base_type(void *type, void **ret_type) {
 		*ret_type = 0;
 	} else {
 		curr_idx -= base_idx;
-		*ret_type = r_list_get_n(p_types_list, curr_idx);
+		*ret_type = r_pvector_at (p_types_list, curr_idx);
 	}
 
 	return curr_idx;
@@ -284,7 +284,7 @@ static int get_class_struct_derived(void *type, void **ret_type) {
 		*ret_type = 0;
 	} else {
 		curr_idx -= base_idx;
-		*ret_type = r_list_get_n(p_types_list, curr_idx);
+		*ret_type = r_pvector_at (p_types_list, curr_idx);
 	}
 
 	return curr_idx;
@@ -300,7 +300,7 @@ static int get_class_struct_vshape(void *type, void **ret_type) {
 		*ret_type = 0;
 	} else {
 		curr_idx -= base_idx;
-		*ret_type = r_list_get_n(p_types_list, curr_idx);
+		*ret_type = r_pvector_at (p_types_list, curr_idx);
 	}
 
 	return curr_idx;
@@ -316,7 +316,7 @@ static int get_mfunction_return_type(void *type, void **ret_type) {
 		*ret_type = 0;
 	} else {
 		curr_idx -= base_idx;
-		*ret_type = r_list_get_n(p_types_list, curr_idx);
+		*ret_type = r_pvector_at (p_types_list, curr_idx);
 	}
 
 	return curr_idx;
@@ -332,7 +332,7 @@ static int get_mfunction_class_type(void *type, void **ret_type) {
 		*ret_type = 0;
 	} else {
 		curr_idx -= base_idx;
-		*ret_type = r_list_get_n(p_types_list, curr_idx);
+		*ret_type = r_pvector_at (p_types_list, curr_idx);
 	}
 
 	return curr_idx;
@@ -348,7 +348,7 @@ static int get_mfunction_this_type(void *type, void **ret_type) {
 		*ret_type = 0;
 	} else {
 		curr_idx -= base_idx;
-		*ret_type = r_list_get_n(p_types_list, curr_idx);
+		*ret_type = r_pvector_at (p_types_list, curr_idx);
 	}
 
 	return curr_idx;
@@ -364,7 +364,7 @@ static int get_mfunction_arglist(void *type, void **ret_type) {
 		*ret_type = 0;
 	} else {
 		curr_idx -= base_idx;
-		*ret_type = r_list_get_n(p_types_list, curr_idx);
+		*ret_type = r_pvector_at (p_types_list, curr_idx);
 	}
 
 	return curr_idx;
@@ -380,7 +380,7 @@ static int get_modifier_modified_type(void *type, void **ret_type) {
 		*ret_type = 0;
 	} else {
 		curr_idx -= base_idx;
-		*ret_type = r_list_get_n(p_types_list, curr_idx);
+		*ret_type = r_pvector_at (p_types_list, curr_idx);
 	}
 
 	return curr_idx;
@@ -396,7 +396,7 @@ static int get_pointer_utype(void *type, void **ret_type) {
 		*ret_type = 0;
 	} else {
 		curr_idx -= base_idx;
-		*ret_type = r_list_get_n(p_types_list, curr_idx);
+		*ret_type = r_pvector_at (p_types_list, curr_idx);
 	}
 
 	return curr_idx;
@@ -412,7 +412,7 @@ static int get_procedure_return_type(void *type, void **ret_type) {
 		*ret_type = 0;
 	} else {
 		curr_idx -= base_idx;
-		*ret_type = r_list_get_n(p_types_list, curr_idx);
+		*ret_type = r_pvector_at (p_types_list, curr_idx);
 	}
 
 	return curr_idx;
@@ -428,7 +428,7 @@ static int get_procedure_arglist(void *type, void **ret_type) {
 		*ret_type = 0;
 	} else {
 		curr_idx -= base_idx;
-		*ret_type = r_list_get_n(p_types_list, curr_idx);
+		*ret_type = r_pvector_at (p_types_list, curr_idx);
 	}
 
 	return curr_idx;
@@ -444,7 +444,7 @@ static int get_member_index(void *type, void **ret_type) {
 		*ret_type = 0;
 	} else {
 		curr_idx -= base_idx;
-		*ret_type = r_list_get_n(p_types_list, curr_idx);
+		*ret_type = r_pvector_at (p_types_list, curr_idx);
 	}
 
 	return curr_idx;
@@ -460,7 +460,7 @@ static int get_nesttype_index(void *type, void **ret_type) {
 		*ret_type = 0;
 	} else {
 		curr_idx -= base_idx;
-		*ret_type = r_list_get_n(p_types_list, curr_idx);
+		*ret_type = r_pvector_at (p_types_list, curr_idx);
 	}
 
 	return curr_idx;
@@ -476,7 +476,7 @@ static int get_onemethod_index(void *type, void **ret_type) {
 		*ret_type = 0;
 	} else {
 		curr_idx -= base_idx;
-		*ret_type = r_list_get_n(p_types_list, curr_idx);
+		*ret_type = r_pvector_at (p_types_list, curr_idx);
 	}
 
 	return curr_idx;
@@ -491,7 +491,7 @@ static int get_method_mlist(void *type, void **ret_type) {
 		*ret_type = 0;
 	} else {
 		curr_idx -= base_idx;
-		*ret_type = r_list_get_n(p_types_list, curr_idx);
+		*ret_type = r_pvector_at (p_types_list, curr_idx);
 	}
 
 	return curr_idx;
@@ -506,20 +506,20 @@ static int get_enum_utype(void *type, void **ret_type) {
 		*ret_type = 0;
 	} else {
 		curr_idx -= base_idx;
-		*ret_type = r_list_get_n(p_types_list, curr_idx);
+		*ret_type = r_pvector_at (p_types_list, curr_idx);
 	}
 
 	return curr_idx;
 }
 
-static void get_fieldlist_members(void *type, RList **l) {
+static void get_fieldlist_members(void *type, RPVector **l) {
 	STypeInfo *t = (STypeInfo *) type;
 	SLF_FIELDLIST *lf_fieldlist = (SLF_FIELDLIST *) t->type_info;
 
-	*l = lf_fieldlist->substructs;
+	*l = &lf_fieldlist->substructs;
 }
 
-static void get_union_members(void *type, RList **l) {
+static void get_union_members(void *type, RPVector **l) {
 	STypeInfo *t = (STypeInfo *) type;
 	SLF_UNION *lf_union = (SLF_UNION *) t->type_info;
 	unsigned int indx = 0;
@@ -529,12 +529,12 @@ static void get_union_members(void *type, RList **l) {
 	} else {
 		SType *tmp = 0;
 		indx = lf_union->field_list - base_idx;
-		tmp = (SType *)r_list_get_n(p_types_list, indx);
-		*l = ((SLF_FIELDLIST *) tmp->type_data.type_info)->substructs;
+		tmp = (SType *)r_pvector_at (p_types_list, indx);
+		*l = &((SLF_FIELDLIST *) tmp->type_data.type_info)->substructs;
 	}
 }
 
-static void get_struct_class_members(void *type, RList **l) {
+static void get_struct_class_members(void *type, RPVector **l) {
 	SLF_FIELDLIST *lf_fieldlist = 0;
 	STypeInfo *t = (STypeInfo *) type;
 	SLF_STRUCTURE *lf = (SLF_STRUCTURE *) t->type_info;
@@ -545,13 +545,13 @@ static void get_struct_class_members(void *type, RList **l) {
 	} else {
 		SType *tmp = 0;
 		indx = lf->field_list - base_idx;
-		tmp = (SType *)r_list_get_n(p_types_list, indx);
+		tmp = (SType *)r_pvector_at (p_types_list, indx);
 		lf_fieldlist = (SLF_FIELDLIST *) tmp->type_data.type_info;
-		*l = lf_fieldlist->substructs;
+		*l = &lf_fieldlist->substructs;
 	}
 }
 
-static void get_enum_members(void *type, RList **l) {
+static void get_enum_members(void *type, RPVector **l) {
 	STypeInfo *t = (STypeInfo *) type;
 	SLF_ENUM *lf = (SLF_ENUM *) t->type_info;
 	unsigned int indx = 0;
@@ -561,8 +561,8 @@ static void get_enum_members(void *type, RList **l) {
 	} else {
 		SType *tmp = 0;
 		indx = lf->field_list - base_idx;
-		tmp = (SType *)r_list_get_n(p_types_list, indx);
-		*l = ((SLF_FIELDLIST *) tmp->type_data.type_info)->substructs;
+		tmp = (SType *)r_pvector_at (p_types_list, indx);
+		*l = &((SLF_FIELDLIST *) tmp->type_data.type_info)->substructs;
 	}
 }
 
@@ -904,12 +904,11 @@ static void free_lf_member(void *type_info) {
 static void free_lf_fieldlist(void *type) {
 	STypeInfo *t = (STypeInfo *) type;
 	SLF_FIELDLIST *lf_fieldlist = (SLF_FIELDLIST *) t->type_info;
-	RListIter *it;
+	void **it;
 	STypeInfo *type_info = 0;
 
-	it = r_list_iterator(lf_fieldlist->substructs);
-	while (r_list_iter_next(it)) {
-		type_info = (STypeInfo *) r_list_iter_get(it);
+	r_pvector_foreach (&lf_fieldlist->substructs, it) {
+		type_info = (STypeInfo *) *it;
 		if (type_info->free_) {
 			type_info->free_ (type_info);
 		}
@@ -918,7 +917,7 @@ static void free_lf_fieldlist(void *type) {
 		}
 		free(type_info);
 	}
-	r_list_free (lf_fieldlist->substructs);
+	r_pvector_fini (&lf_fieldlist->substructs);
 }
 
 static void free_lf_class(void *type) {
@@ -968,12 +967,11 @@ static void free_lf_vtshape(void *type) {
 
 static void free_tpi_stream(void *stream) {
 	STpiStream *tpi_stream = (STpiStream *)stream;
-	RListIter *it;
+	void **it;
 	SType *type = NULL;
 
-	it = r_list_iterator (tpi_stream->types);
-	while (r_list_iter_next (it)) {
-		type = (SType *) r_list_iter_get (it);
+	r_pvector_foreach (&tpi_stream->types, it) {
+		type = (SType *) *it;
 		if (!type) {
 			continue;
 		}
@@ -988,7 +986,7 @@ static void free_tpi_stream(void *stream) {
 		}
 		R_FREE (type);
 	}
-	r_list_free (tpi_stream->types);
+	r_pvector_fini (&tpi_stream->types);
 }
 
 static void get_array_print_type(void *type, char **name) {
@@ -1946,7 +1944,7 @@ static void init_stype_info(STypeInfo *type_info)
 	type_info->type_info = (void *) lf; \
 	type_info->leaf_type = type; \
 	init_stype_info (type_info); \
-	r_list_append (lf_fieldlist->substructs, type_info); \
+	r_pvector_push (&lf_fieldlist->substructs, type_info); \
 }
 
 ///////////////////////////////////////////////////////////////////////////////
@@ -1956,7 +1954,7 @@ static int parse_lf_fieldlist(SLF_FIELDLIST *lf_fieldlist,  unsigned char *leaf_
 	int curr_read_bytes = 0;
 	unsigned char *p = leaf_data;
 
-	lf_fieldlist->substructs = r_list_new ();
+	r_pvector_init (&lf_fieldlist->substructs, NULL);
 
 	while (*read_bytes <= len) {
 		READ2(*read_bytes, len, leaf_type, p, ut16);
@@ -2351,8 +2349,8 @@ int parse_tpi_stream(void *parsed_pdb_stream, R_STREAM_FILE *stream) {
 	int i;
 	SType *type = 0;
 	STpiStream *tpi_stream = (STpiStream *) parsed_pdb_stream;
-	tpi_stream->types = r_list_new ();
-	p_types_list = tpi_stream->types;
+	r_pvector_init (&tpi_stream->types, NULL);
+	p_types_list = &tpi_stream->types;
 
 	stream_file_read(stream, sizeof(STPIHeader), (char *)&tpi_stream->header);
 
@@ -2371,7 +2369,7 @@ int parse_tpi_stream(void *parsed_pdb_stream, R_STREAM_FILE *stream) {
 			free (type);
 			return 0;
 		}
-		r_list_append(tpi_stream->types, type);
+		r_pvector_push (&tpi_stream->types, type);
 	}
 	return 1;
 }

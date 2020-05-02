@@ -28,7 +28,7 @@ void parse_gdata_stream(void *stream, R_STREAM_FILE *stream_file) {
 	SGDATAStream *data_stream = (SGDATAStream *) stream;
 	SGlobal *global = 0;
 
-	data_stream->globals_list = r_list_new ();
+	r_pvector_init (&data_stream->globals_list, NULL);
 	while (1) {
 		stream_file_read (stream_file, 2, (char *)&len);
 		if (len == 0) {
@@ -49,7 +49,7 @@ void parse_gdata_stream(void *stream, R_STREAM_FILE *stream_file) {
 			}
 			global->leaf_type = leaf_type;
 			parse_global (data + 2, len, global);
-			r_list_append (data_stream->globals_list, global);
+			r_pvector_push (&data_stream->globals_list, global);
 		}
 		free (data);
 	}
@@ -70,15 +70,14 @@ void parse_gdata_stream(void *stream, R_STREAM_FILE *stream_file) {
 void free_gdata_stream(void *stream) {
 	SGDATAStream *data_stream = (SGDATAStream *) stream;
 	SGlobal *global = 0;
-	RListIter *it = 0;
+	void **it;
 
-	it = r_list_iterator(data_stream->globals_list);
-	while (r_list_iter_next(it)) {
-		global = (SGlobal *) r_list_iter_get(it);
+	r_pvector_foreach (&data_stream->globals_list, it) {
+		global = (SGlobal *) *it;
 		if (global->name.name) {
 			free (global->name.name);
 		}
 		free (global);
 	}
-	r_list_free (data_stream->globals_list);
+	r_pvector_fini (&data_stream->globals_list);
 }

@@ -166,8 +166,8 @@ static int init_pdb7_root_stream(R_PDB *pdb, int *root_page_list, int pages_amou
 // short ii;
 // FILE *tmp_file;
 	tmp_data = ((char *) data + num_streams * 4 + 4);
-	root_stream7->streams_list = r_list_new ();
-	RList *pList = root_stream7->streams_list;
+	r_pvector_init (&root_stream7->streams_list, NULL);
+	RPVector *pList = &root_stream7->streams_list;
 	SPage *page = 0;
 	for (i = 0; i < num_streams; i++) {
 		num_pages = count_pages (sizes[i], page_size);
@@ -211,7 +211,7 @@ static int init_pdb7_root_stream(R_PDB *pdb, int *root_page_list, int pages_amou
 			free (tmp);
 		}
 
-		r_list_append (pList, page);
+		r_pvector_push (pList, page);
 	}
 	free (sizes);
 	free (data);
@@ -276,12 +276,12 @@ static void free_info_stream(void *stream) {
 			} else {							\
 				stream_parse_func->stream = 0;				\
 			}								\
-			r_list_append ((list), stream_parse_func);			\
+			r_pvector_push ((list), stream_parse_func);			\
 		}									\
 }
 
 ///////////////////////////////////////////////////////////////////////////////
-static void fill_list_for_stream_parsing(RList *l, SDbiStream *dbi_stream) {
+static void fill_list_for_stream_parsing(RPVector *l, SDbiStream *dbi_stream) {
 	ADD_INDX_TO_LIST (l, dbi_stream->dbi_header.symrecStream, sizeof (SGDATAStream),
 		ePDB_STREAM_GSYM, free_gdata_stream, parse_gdata_stream);
 	ADD_INDX_TO_LIST (l, dbi_stream->dbg_header.sn_section_hdr, sizeof (SPEStream),
@@ -304,14 +304,16 @@ static void fill_list_for_stream_parsing(RList *l, SDbiStream *dbi_stream) {
 }
 
 ///////////////////////////////////////////////////////////////////////////////
-static void find_indx_in_list(RList *l, int index, SStreamParseFunc **res) {
+static void find_indx_in_list(RPVector *l, int index, SStreamParseFunc **res) {
+	if (!l) {
+		return;
+	}
 	SStreamParseFunc *stream_parse_func = 0;
-	RListIter *it = 0;
+	void **it = 0;
 
 	*res = 0;
-	it = r_list_iterator (l);
-	while (r_list_iter_next (it)) {
-		stream_parse_func = (SStreamParseFunc *) r_list_iter_get (it);
+	r_pvector_foreach (l, it) {
+		stream_parse_func = (SStreamParseFunc *) *it;
 		if (index == stream_parse_func->indx) {
 			*res = stream_parse_func;
 			return;
@@ -322,19 +324,17 @@ static void find_indx_in_list(RList *l, int index, SStreamParseFunc **res) {
 ///////////////////////////////////////////////////////////////////////////////
 static int pdb_read_root(R_PDB *pdb) {
 	int i = 0;
-	RList *pList = pdb->pdb_streams;
+	RPVector *pList = &pdb->pdb_streams;
 	R_PDB7_ROOT_STREAM *root_stream = pdb->root_stream;
 	R_PDB_STREAM *pdb_stream = 0;
 	SPDBInfoStream *pdb_info_stream = 0;
 	STpiStream *tpi_stream = 0;
 	R_STREAM_FILE stream_file;
-	RListIter *it;
+	void **it;
 	SPage *page = 0;
 	SStreamParseFunc *stream_parse_func = 0;
-
-	it = r_list_iterator (root_stream->streams_list);
-	while (r_list_iter_next (it)) {
-		page = (SPage *) r_list_iter_get (it);
+	r_pvector_foreach (&root_stream->streams_list, it) {
+		page = (SPage *) *it;
 		if (page->stream_pages == 0) {
 			//eprintf ("Warning: no stream pages. Skipping.\n");
 			i++;
@@ -354,7 +354,7 @@ static int pdb_read_root(R_PDB *pdb) {
 			}
 			pdb_info_stream->free_ = free_info_stream;
 			parse_pdb_info_stream (pdb_info_stream, &stream_file);
-			r_list_append (pList, pdb_info_stream);
+			r_pvector_push (pList, pdb_info_stream);
 			break;
 		case ePDB_STREAM_TPI:
 			tpi_stream = R_NEW0 (STpiStream);
@@ -366,7 +366,7 @@ static int pdb_read_root(R_PDB *pdb) {
 				free (tpi_stream);
 				return 0;
 			}
-			r_list_append (pList, tpi_stream);
+			r_pvector_push (pList, tpi_stream);
 			break;
 		case ePDB_STREAM_DBI:
 		{
@@ -376,13 +376,13 @@ static int pdb_read_root(R_PDB *pdb) {
 			}
 			init_dbi_stream (dbi_stream);
 			parse_dbi_stream (dbi_stream, &stream_file);
-			r_list_append (pList, dbi_stream);
-			pdb->pdb_streams2 = r_list_new ();
-			fill_list_for_stream_parsing (pdb->pdb_streams2, dbi_stream);
+			r_pvector_push (pList, dbi_stream);
+			r_pvector_init (&pdb->pdb_streams2, NULL);
+			fill_list_for_stream_parsing (&pdb->pdb_streams2, dbi_stream);
 			break;
 		}
 		default:
-			find_indx_in_list (pdb->pdb_streams2, i, &stream_parse_func);
+			find_indx_in_list (&pdb->pdb_streams2, i, &stream_parse_func);
 			if (stream_parse_func && stream_parse_func->parse_stream) {
 				stream_parse_func->parse_stream (stream_parse_func->stream, &stream_file);
 				break;
@@ -395,7 +395,7 @@ static int pdb_read_root(R_PDB *pdb) {
 			init_r_pdb_stream (pdb_stream, pdb->buf, (int *) page->stream_pages,
 				root_stream->pdb_stream.pages_amount, i,
 				page->stream_size, root_stream->pdb_stream.page_size);
-			r_list_append (pList, pdb_stream);
+			r_pvector_push (pList, pdb_stream);
 			break;
 		}
 		if (stream_file.error) {
@@ -489,7 +489,6 @@ static bool pdb7_parse(R_PDB *pdb) {
 		p_tmp = (int *) p_tmp + 1;
 	}
 
-	pdb->pdb_streams2 = NULL;
 	if (!init_pdb7_root_stream (pdb, root_page_list, num_root_pages,
 		    ePDB_STREAM_ROOT, root_size, page_size)) {
 		eprintf ("Could not initialize root stream.\n");
@@ -513,22 +512,20 @@ error:
 
 static void finish_pdb_parse(R_PDB *pdb) {
 	R_PDB7_ROOT_STREAM *p = pdb->root_stream;
-	RListIter *it;
+	void **it;
 	SPage *page = 0;
 
 	if (!p) {
 		return;
 	}
-	it = r_list_iterator (p->streams_list);
-	while (r_list_iter_next (it)) {
-		page = (SPage *) r_list_iter_get (it);
+	r_pvector_foreach (&p->streams_list, it) {
+		page = (SPage *) *it;
 		free (page->stream_pages);
 		page->stream_pages = 0;
 		free (page);
 		page = 0;
 	}
-	r_list_free (p->streams_list);
-	p->streams_list = 0;
+	r_pvector_fini (&p->streams_list);
 	free (p);
 	p = 0;
 	// end of free of R_PDB7_ROOT_STREAM
@@ -543,35 +540,34 @@ static void finish_pdb_parse(R_PDB *pdb) {
 	R_PDB_STREAM *pdb_stream = 0;
 	int i = 0;
 #if 1
-/* r_list_free should be enough, all the items in a list should be freeable using a generic destructor
+/* r_pvector_fini should be enough, all the items in a list should be freeable using a generic destructor
    hacking up things like that may only produce problems. so it is better to not assume that a specific
    element in a list is of a specific type and just store this info in the type struct or so.
 */
 // XXX: this loop is fucked up. i prefer to leak than crash
-	it = r_list_iterator (pdb->pdb_streams);
-	while (r_list_iter_next (it)) {
+	r_pvector_foreach (&pdb->pdb_streams, it) {
 		switch (i) {
 		case 1:
-			pdb_info_stream = (SPDBInfoStream *) r_list_iter_get (it);
+			pdb_info_stream = (SPDBInfoStream *) *it;
 			free_pdb_stream (pdb_info_stream);
 			free (pdb_info_stream);
 			break;
 		case 2:
-			tpi_stream = (STpiStream *) r_list_iter_get (it);
+			tpi_stream = (STpiStream *) *it;
 			free_pdb_stream (tpi_stream);
 			free (tpi_stream);
 			break;
 		case 3:
-			dbi_stream = (SDbiStream *) r_list_iter_get (it);
+			dbi_stream = (SDbiStream *) *it;
 			free_pdb_stream (dbi_stream);
 			free (dbi_stream);
 			break;
 		default:
-			find_indx_in_list (pdb->pdb_streams2, i, &stream_parse_func);
+			find_indx_in_list (&pdb->pdb_streams2, i, &stream_parse_func);
 			if (stream_parse_func) {
 				break;
 			}
-			pdb_stream = (R_PDB_STREAM *) r_list_iter_get (it);
+			pdb_stream = (R_PDB_STREAM *) *it;
 			free_pdb_stream (pdb_stream);
 			free (pdb_stream);
 			break;
@@ -579,14 +575,13 @@ static void finish_pdb_parse(R_PDB *pdb) {
 		i++;
 	}
 #endif
-	r_list_free (pdb->pdb_streams);
+	r_pvector_fini (&pdb->pdb_streams);
 	// enf of free of pdb->pdb_streams
 
 #if 1
 	// start of free pdb->pdb_streams2
-	it = r_list_iterator (pdb->pdb_streams2);
-	while (r_list_iter_next (it)) {
-		stream_parse_func = (SStreamParseFunc *) r_list_iter_get (it);
+	r_pvector_foreach (&pdb->pdb_streams2, it) {
+		stream_parse_func = (SStreamParseFunc *) *it;
 		if (stream_parse_func->free) {
 			stream_parse_func->free (stream_parse_func->stream);
 			free (stream_parse_func->stream);
@@ -594,7 +589,7 @@ static void finish_pdb_parse(R_PDB *pdb) {
 		free (stream_parse_func);
 	}
 #endif
-	r_list_free (pdb->pdb_streams2);
+	r_pvector_fini (&pdb->pdb_streams2);
 	// end of free pdb->streams2
 
 	free (pdb->stream_map);
@@ -857,12 +852,14 @@ int build_flags_format_and_members_field(R_PDB *pdb, ELeafType lt, char *name, c
 	return 1;
 }
 
-int alloc_format_flag_and_member_fields(RList *ptmp, char **flags_format_field, int *members_amount, char ***members_name_field) {
+int alloc_format_flag_and_member_fields(RPVector *ptmp, char **flags_format_field, int *members_amount, char ***members_name_field) {
+	if (!ptmp) {
+		return;
+	}
 	int i = 0, size = 0;
 
-	RListIter *it2 = r_list_iterator (ptmp);
-	while (r_list_iter_next (it2)) {
-		(void) r_list_iter_get (it2);
+	void **it2;
+	r_pvector_foreach (ptmp, it2) {
 		*members_amount = *members_amount + 1;
 	}
 	if (!*members_amount) {
@@ -898,9 +895,9 @@ static void print_types(R_PDB *pdb, int mode) {
 	int offset = 0;
 	SType *t = 0;
 	STypeInfo *tf = 0;
-	RListIter *it = 0, *it2 = 0;
-	RList *plist = pdb->pdb_streams, *ptmp = NULL;
-	STpiStream *tpi_stream = r_list_get_n (plist, ePDB_STREAM_TPI);
+	void **it = 0, **it2 = 0;
+	RPVector *plist = &pdb->pdb_streams, *ptmp = NULL;
+	STpiStream *tpi_stream = r_pvector_at (plist, ePDB_STREAM_TPI);
 
 	if (!tpi_stream) {
 		eprintf ("There is no tpi stream in current pdb\n");
@@ -911,13 +908,12 @@ static void print_types(R_PDB *pdb, int mode) {
 		pdb->cb_printf ("{\"%s\":[", "types");
 	}
 
-	it = r_list_iterator (tpi_stream->types);
-	while (r_list_iter_next (it)) {
+	r_pvector_foreach (&tpi_stream->types, it) {
 		pos = 0;
 		i = 0;
 		members_amount = 0;
 		val = 0;
-		t = (SType *) r_list_iter_get (it);
+		t = (SType *)*it;
 		tf = &t->type_data;
 		lt = tf->leaf_type;
 		if ((tf->leaf_type == eLF_STRUCTURE) || (tf->leaf_type == eLF_UNION) || (tf->leaf_type == eLF_ENUM)) {
@@ -969,55 +965,56 @@ static void print_types(R_PDB *pdb, int mode) {
 
 				break;
 			}
-
-			it2 = r_list_iterator (ptmp);
-			while (r_list_iter_next (it2)) {
-				if ((mode == 'j') && (i)) {
-					pdb->cb_printf (",");
-				}
-				tf = (STypeInfo *) r_list_iter_get (it2);
-				if (tf->get_name) {
-					tf->get_name (tf, &name);
-				}
-				if (tf->get_val) {
-					tf->get_val (tf, &offset);
-				} else {
-					offset = 0;
-				}
-				if (tf->get_print_type) {
-					tf->get_print_type (tf, &type);
-				}
-				switch (mode) {
-				case 'd':
-					pdb->cb_printf ("  0x%x: %s type:", offset, name);
-					pdb->cb_printf ("%s\n", type);
-					break;
-				case 'r':
-					if (!build_flags_format_and_members_field (pdb, lt, name, type, i,
-						    &pos, offset, flags_format_field, members_name_field)) {
-						R_FREE (type);
-						goto err;
+			
+			if (ptmp) {
+				r_pvector_foreach (ptmp, it2) {
+					if ((mode == 'j') && (i)) {
+						pdb->cb_printf (",");
 					}
-					break;
-				case 'j':	// JSON
-					switch (lt) {
-					case eLF_ENUM:
-						pdb->cb_printf ("{\"%s\":\"%s\",\"%s\":%d}",
-							"enum_name", name, "enum_val", offset);
+					tf = (STypeInfo *)*it2;
+					if (tf->get_name) {
+						tf->get_name (tf, &name);
+					}
+					if (tf->get_val) {
+						tf->get_val (tf, &offset);
+					} else {
+						offset = 0;
+					}
+					if (tf->get_print_type) {
+						tf->get_print_type (tf, &type);
+					}
+					switch (mode) {
+					case 'd':
+						pdb->cb_printf ("  0x%x: %s type:", offset, name);
+						pdb->cb_printf ("%s\n", type);
 						break;
-					case eLF_STRUCTURE:
-					case eLF_UNION:
-						pdb->cb_printf ("{\"%s\":\"%s\",\"%s\":\"%s\",\"%s\":%d}",
-							"member_type", type + strlen ("(member)") + 1,
-							"member_name", name, "offset", offset);
+					case 'r':
+						if (!build_flags_format_and_members_field (pdb, lt, name, type, i,
+							    &pos, offset, flags_format_field, members_name_field)) {
+							R_FREE (type);
+							goto err;
+						}
 						break;
-					default:
+					case 'j': // JSON
+						switch (lt) {
+						case eLF_ENUM:
+							pdb->cb_printf ("{\"%s\":\"%s\",\"%s\":%d}",
+								"enum_name", name, "enum_val", offset);
+							break;
+						case eLF_STRUCTURE:
+						case eLF_UNION:
+							pdb->cb_printf ("{\"%s\":\"%s\",\"%s\":\"%s\",\"%s\":%d}",
+								"member_type", type + strlen ("(member)") + 1,
+								"member_name", name, "offset", offset);
+							break;
+						default:
+							break;
+						}
 						break;
 					}
-					break;
+					R_FREE (type);
+					i++;
 				}
-				R_FREE (type);
-				i++;
 			}
 
 			if (mode == 'r') {
@@ -1028,7 +1025,7 @@ static void print_types(R_PDB *pdb, int mode) {
 				} else {
 					pdb->cb_printf ("%c ", '{');
 				}
-				sym = (lt == eLF_ENUM)? ',': ' ';
+				sym = (lt == eLF_ENUM) ? ',' : ' ';
 				for (i = 0; i < members_amount; i++) {
 					char *eq = (lt == eLF_ENUM) ? strchr (members_name_field[i], '=') : NULL;
 					r_name_filter (members_name_field[i], -1);
@@ -1074,15 +1071,12 @@ static void print_gvars(R_PDB *pdb, ut64 img_base, int format) {
 	SGDATAStream *gsym_data_stream = 0;
 	SPEStream *pe_stream = 0;
 	SGlobal *gdata = 0;
-	RListIter *it = 0;
-	RList *l = 0;
+	void **it = 0;
 	char *name;
 	int is_first = 1;
 
-	l = pdb->pdb_streams2;
-	it = r_list_iterator (l);
-	while (r_list_iter_next (it)) {
-		tmp = (SStreamParseFunc *) r_list_iter_get (it);
+	r_pvector_foreach (&pdb->pdb_streams2, it) {
+		tmp = (SStreamParseFunc *) *it;
 		switch (tmp->type) {
 		case ePDB_STREAM_SECT__HDR_ORIG:
 			sctns_orig = tmp;
@@ -1118,10 +1112,9 @@ static void print_gvars(R_PDB *pdb, ut64 img_base, int format) {
 	if (!pe_stream) {
 		return;
 	}
-	it = r_list_iterator (gsym_data_stream->globals_list);
-	while (r_list_iter_next (it)) {
-		gdata = (SGlobal *) r_list_iter_get (it);
-		sctn_header = r_list_get_n (pe_stream->sections_hdrs, (gdata->segment - 1));
+	r_pvector_foreach (&gsym_data_stream->globals_list, it) {
+		gdata = (SGlobal *) *it;
+		sctn_header = r_pvector_at (&pe_stream->sections_hdrs, (gdata->segment - 1));
 		if (sctn_header) {
 			name = r_bin_demangle_msvc (gdata->name.name);
 			name = (name)? name: strdup (gdata->name.name);
@@ -1215,7 +1208,7 @@ R_API bool init_pdb_parser(R_PDB *pdb, const char *filename) {
 
 	R_FREE (signature);
 
-	pdb->pdb_streams = r_list_new ();
+	r_pvector_init (&pdb->pdb_streams, NULL);
 	pdb->stream_map = 0;
 	pdb->finish_pdb_parse = finish_pdb_parse;
 	pdb->print_types = print_types;

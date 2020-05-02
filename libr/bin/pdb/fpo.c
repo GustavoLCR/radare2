@@ -43,7 +43,7 @@ void parse_fpo_stream(void *stream, R_STREAM_FILE *stream_file)
 	stream_file_get_data(stream_file, data);
 
 	fpo_stream = (SFPOStream *) stream;
-	fpo_stream->fpo_data_list = r_list_new ();
+	r_pvector_init (&fpo_stream->fpo_data_list, NULL);
 	ptmp = data;
 	while (read_bytes < data_size) {
 		fpo_data = (SFPO_DATA *) malloc(sizeof(SFPO_DATA));
@@ -55,7 +55,7 @@ void parse_fpo_stream(void *stream, R_STREAM_FILE *stream_file)
 			break;
 		}
 
-		r_list_append (fpo_stream->fpo_data_list, fpo_data);
+		r_pvector_push (&fpo_stream->fpo_data_list, fpo_data);
 	}
 
 	free(data);
@@ -65,30 +65,28 @@ void parse_fpo_stream(void *stream, R_STREAM_FILE *stream_file)
 void free_fpo_stream(void *stream)
 {
 	SFPOStream *fpo_stream = (SFPOStream *) stream;
-	RListIter *it = 0;
+	void **it;
 	SFPO_DATA *fpo_data = 0;
 
-	it = r_list_iterator(fpo_stream->fpo_data_list);
-	while (r_list_iter_next(it)) {
-		fpo_data = (SFPO_DATA *) r_list_iter_get(it);
-		free(fpo_data);
+	r_pvector_foreach (&fpo_stream->fpo_data_list, it) {
+		fpo_data = (SFPO_DATA *) *it;
+		free (fpo_data);
 	}
-	r_list_free (fpo_stream->fpo_data_list);
+	r_pvector_fini (&fpo_stream->fpo_data_list);
 }
 
 ///////////////////////////////////////////////////////////////////////////////
 void free_fpo_new_stream(void *stream)
 {
 	SFPONewStream *fpo_stream = (SFPONewStream *) stream;
-	RListIter *it = 0;
+	void **it;
 	SFPO_DATA_V2 *fpo_data = 0;
 
-	it = r_list_iterator(fpo_stream->fpo_data_list);
-	while (r_list_iter_next(it)) {
-		fpo_data = (SFPO_DATA_V2 *) r_list_iter_get(it);
-		free(fpo_data);
+	r_pvector_foreach (&fpo_stream->fpo_data_list, it) {
+		fpo_data = (SFPO_DATA_V2 *) *it;
+		free (fpo_data);
 	}
-	r_list_free (fpo_stream->fpo_data_list);
+	r_pvector_fini (&fpo_stream->fpo_data_list);
 }
 
 ///////////////////////////////////////////////////////////////////////////////
@@ -108,7 +106,7 @@ void parse_fpo_new_stream(void *stream, R_STREAM_FILE *stream_file)
 	stream_file_get_data (stream_file, data);
 
 	fpo_stream = (SFPONewStream *) stream;
-	fpo_stream->fpo_data_list = r_list_new ();
+	r_pvector_init (&fpo_stream->fpo_data_list, NULL);
 	ptmp = data;
 	while (read_bytes < data_size) {
 		fpo_data = (SFPO_DATA_V2 *) malloc (sizeof(SFPO_DATA_V2));
@@ -124,7 +122,7 @@ void parse_fpo_new_stream(void *stream, R_STREAM_FILE *stream_file)
 			break;
 		}
 
-		r_list_append (fpo_stream->fpo_data_list, fpo_data);
+		r_pvector_push (&fpo_stream->fpo_data_list, fpo_data);
 	}
 
 	free (data);
