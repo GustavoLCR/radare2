@@ -15,7 +15,7 @@ typedef struct pipes_t {
 } pipes;
 
 struct r2r_subprocess_t {
-	HANDLE stdin_write;
+	pipes stdin_pipes;
 	pipes stdout_pipes;
 	pipes stderr_pipes;
 	HANDLE proc;
@@ -32,6 +32,7 @@ static void pipes_free(void *e, void *user) {
 
 static volatile long pipe_id = 0;
 static RVector pipes_vec = { 0 };
+static RVector pipes_in_vec = { 0 };
 static RThreadLock *pipes_vec_lock = NULL;
 static RThreadCond *pipes_vec_cond_empty = NULL;
 
@@ -57,7 +58,9 @@ static bool create_pipe_overlap(pipes *p, LPSECURITY_ATTRIBUTES attrs, DWORD sz,
 
 R_API bool r2r_subprocess_init(void) {
 	r_vector_init (&pipes_vec, sizeof (pipes), pipes_free, NULL);
+	r_vector_init (&pipes_in_vec, sizeof (pipes), pipes_free, NULL);
 	r_vector_reserve (&pipes_vec, WORKERS_DEFAULT * 2);
+	r_vector_reserve (&pipes_vec, WORKERS_DEFAULT);
 	pipes_vec_lock = r_th_lock_new (false);
 	pipes_vec_cond_empty = r_th_cond_new ();
 	SECURITY_ATTRIBUTES sattrs;
@@ -65,8 +68,8 @@ R_API bool r2r_subprocess_init(void) {
 	sattrs.bInheritHandle = TRUE;
 	sattrs.lpSecurityDescriptor = NULL;
 	size_t i;
+	pipes p;
 	for (i = 0; i < WORKERS_DEFAULT * 2; i++) {
-		struct pipes_t p;
 		if (!create_pipe_overlap (&p, &sattrs, 0, FILE_FLAG_OVERLAPPED, 0)) {
 			return false;
 		}
@@ -75,11 +78,22 @@ R_API bool r2r_subprocess_init(void) {
 		}
 		r_vector_push (&pipes_vec, &p);
 	}
+	for (i = 0; i < WORKERS_DEFAULT; i++) {
+		if (!CreatePipe (&p.read, &p.write, &sattrs, 0)) {
+			return false;
+		}
+		if (!SetHandleInformation (p.write, HANDLE_FLAG_INHERIT, 0)) {
+			return false;
+		}
+		r_vector_push (&pipes_in_vec, &p);
+	}
 	return true;
 }
 R_API void r2r_subprocess_fini(void) {
 	r_vector_fini (&pipes_vec);
+	r_vector_fini (&pipes_in_vec);
 	r_th_lock_free (pipes_vec_lock);
+	r_th_cond_free (pipes_vec_cond_empty);
 }
 
 // Create an env block that inherits the current vars but overrides the given ones
@@ -174,9 +188,6 @@ R_API R2RSubprocess *r2r_subprocess_start(
 		const char *file, const char *args[], size_t args_size,
 		const char *envvars[], const char *envvals[], size_t env_size) {
 	R2RSubprocess *proc = NULL;
-	HANDLE stdin_read = NULL;
-	HANDLE stdout_write = NULL;
-	HANDLE stderr_write = NULL;
 
 	char **argv = calloc (args_size + 1, sizeof (char *));
 	if (!argv) {
@@ -199,34 +210,20 @@ R_API R2RSubprocess *r2r_subprocess_start(
 	proc->ret = -1;
 
 	r_th_lock_enter (pipes_vec_lock);
-	if (r_vector_empty (&pipes_vec)) {
+	if (r_vector_empty (&pipes_vec) || r_vector_empty (&pipes_in_vec)) {
 		r_th_cond_wait (pipes_vec_cond_empty, pipes_vec_lock);
 	}
 	r_vector_pop (&pipes_vec, &proc->stdout_pipes);
-	stdout_write = proc->stdout_pipes.write;
 	r_vector_pop (&pipes_vec, &proc->stderr_pipes);
-	stderr_write = proc->stderr_pipes.write;
+	r_vector_pop (&pipes_in_vec, &proc->stdin_pipes);
 	r_th_lock_leave (pipes_vec_lock);
-
-	SECURITY_ATTRIBUTES sattrs;
-	sattrs.nLength = sizeof (sattrs);
-	sattrs.bInheritHandle = TRUE;
-	sattrs.lpSecurityDescriptor = NULL;
-	
-	if (!CreatePipe (&stdin_read, &proc->stdin_write, &sattrs, 0)) {
-		stdin_read = proc->stdin_write = NULL;
-		goto error;
-	}
-	if (!SetHandleInformation (proc->stdin_write, HANDLE_FLAG_INHERIT, 0)) {
-		goto error;
-	}
 
 	PROCESS_INFORMATION proc_info = { 0 };
 	STARTUPINFO start_info = { 0 };
 	start_info.cb = sizeof (start_info);
-	start_info.hStdError = stderr_write;
-	start_info.hStdOutput = stdout_write;
-	start_info.hStdInput = stdin_read;
+	start_info.hStdError = proc->stderr_pipes.write;
+	start_info.hStdOutput = proc->stdout_pipes.write;
+	start_info.hStdInput = proc->stdin_pipes.read;
 	start_info.dwFlags |= STARTF_USESTDHANDLES;
 
 	LPWSTR env = override_env (envvars, envvals, env_size);
@@ -243,19 +240,14 @@ R_API R2RSubprocess *r2r_subprocess_start(
 	proc->proc = proc_info.hProcess;
 
 beach:
-	if (stdin_read) {
-		CloseHandle (stdin_read);
-	}
 	free (cmdline);
 	return proc;
 error:
 	if (proc) {
-		if (proc->stdin_write) {
-			CloseHandle (proc->stdin_write);
-		}
 		r_th_lock_enter (pipes_vec_lock);
 		r_vector_push (&pipes_vec, &proc->stderr_pipes);
 		r_vector_push (&pipes_vec, &proc->stdout_pipes);
+		r_vector_push (&pipes_in_vec, &proc->stdin_pipes);
 		r_th_cond_signal (pipes_vec_cond_empty);
 		r_th_lock_leave (pipes_vec_lock);
 		free (proc);
@@ -394,7 +386,7 @@ R_API void r2r_subprocess_kill(R2RSubprocess *proc) {
 
 R_API void r2r_subprocess_stdin_write(R2RSubprocess *proc, const ut8 *buf, size_t buf_size) {
 	DWORD read;
-	WriteFile (proc->stdin_write, buf, buf_size, &read, NULL);
+	WriteFile (proc->stdin_pipes.write, buf, buf_size, &read, NULL);
 }
 
 
@@ -416,9 +408,9 @@ R_API void r2r_subprocess_free(R2RSubprocess *proc) {
 	r_th_lock_enter (pipes_vec_lock);
 	r_vector_push (&pipes_vec, &proc->stderr_pipes);
 	r_vector_push (&pipes_vec, &proc->stdout_pipes);
+	r_vector_push (&pipes_in_vec, &proc->stdin_pipes);
 	r_th_cond_signal (pipes_vec_cond_empty);
 	r_th_lock_leave (pipes_vec_lock);
-	CloseHandle (proc->stdin_write);
 	CloseHandle (proc->proc);
 	free (proc);
 }
