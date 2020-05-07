@@ -34,7 +34,6 @@ static volatile long pipe_id = 0;
 static RVector pipes_vec = { 0 };
 static RVector pipes_in_vec = { 0 };
 static RThreadLock *pipes_vec_lock = NULL;
-static RThreadCond *pipes_vec_cond_empty = NULL;
 
 static bool create_pipe_overlap(pipes *p, LPSECURITY_ATTRIBUTES attrs, DWORD sz, DWORD read_mode, DWORD write_mode) {
 	// see https://stackoverflow.com/a/419736
@@ -62,7 +61,6 @@ R_API bool r2r_subprocess_init(void) {
 	r_vector_reserve (&pipes_vec, WORKERS_DEFAULT * 2);
 	r_vector_reserve (&pipes_vec, WORKERS_DEFAULT);
 	pipes_vec_lock = r_th_lock_new (false);
-	pipes_vec_cond_empty = r_th_cond_new ();
 	SECURITY_ATTRIBUTES sattrs;
 	sattrs.nLength = sizeof (sattrs);
 	sattrs.bInheritHandle = TRUE;
@@ -93,7 +91,6 @@ R_API void r2r_subprocess_fini(void) {
 	r_vector_fini (&pipes_vec);
 	r_vector_fini (&pipes_in_vec);
 	r_th_lock_free (pipes_vec_lock);
-	r_th_cond_free (pipes_vec_cond_empty);
 }
 
 // Create an env block that inherits the current vars but overrides the given ones
@@ -210,9 +207,6 @@ R_API R2RSubprocess *r2r_subprocess_start(
 	proc->ret = -1;
 
 	r_th_lock_enter (pipes_vec_lock);
-	if (r_vector_empty (&pipes_vec) || r_vector_empty (&pipes_in_vec)) {
-		r_th_cond_wait (pipes_vec_cond_empty, pipes_vec_lock);
-	}
 	r_vector_pop (&pipes_vec, &proc->stdout_pipes);
 	r_vector_pop (&pipes_vec, &proc->stderr_pipes);
 	r_vector_pop (&pipes_in_vec, &proc->stdin_pipes);
@@ -248,7 +242,6 @@ error:
 		r_vector_push (&pipes_vec, &proc->stderr_pipes);
 		r_vector_push (&pipes_vec, &proc->stdout_pipes);
 		r_vector_push (&pipes_in_vec, &proc->stdin_pipes);
-		r_th_cond_signal (pipes_vec_cond_empty);
 		r_th_lock_leave (pipes_vec_lock);
 		free (proc);
 		proc = NULL;
@@ -409,7 +402,6 @@ R_API void r2r_subprocess_free(R2RSubprocess *proc) {
 	r_vector_push (&pipes_vec, &proc->stderr_pipes);
 	r_vector_push (&pipes_vec, &proc->stdout_pipes);
 	r_vector_push (&pipes_in_vec, &proc->stdin_pipes);
-	r_th_cond_signal (pipes_vec_cond_empty);
 	r_th_lock_leave (pipes_vec_lock);
 	CloseHandle (proc->proc);
 	free (proc);
