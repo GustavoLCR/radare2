@@ -9,26 +9,25 @@
 #define USEC_PER_MSEC 1000
 
 #if __WINDOWS__
+typedef struct pipes_t {
+	HANDLE read;
+	HANDLE write;
+} pipes;
+
 struct r2r_subprocess_t {
 	HANDLE stdin_write;
-	HANDLE stdout_read;
-	HANDLE stderr_read;
+	pipes stdout_pipes;
+	pipes stderr_pipes;
 	HANDLE proc;
 	int ret;
 	RStrBuf out;
 	RStrBuf err;
 };
 
-struct pipes_t {
-	long id;
-	HANDLE pipe_read;
-	HANDLE pipe_write;
-};
-
-static RVectorFree pipes_free(void *e, void *user) {
+static void pipes_free(void *e, void *user) {
 	struct pipes_t *p = e;
-	CloseHandle (p->pipe_read);
-	CloseHandle (p->pipe_write);
+	CloseHandle (p->read);
+	CloseHandle (p->write);
 }
 
 static volatile long pipe_id = 0;
@@ -36,7 +35,7 @@ static RVector pipes_vec = { 0 };
 static RThreadLock *pipes_vec_lock = NULL;
 static RThreadCond *pipes_vec_cond_empty = NULL;
 
-static bool create_pipe_overlap (struct pipes_t *p, LPSECURITY_ATTRIBUTES attrs, DWORD sz, DWORD read_mode, DWORD write_mode) {
+static bool create_pipe_overlap(pipes *p, LPSECURITY_ATTRIBUTES attrs, DWORD sz, DWORD read_mode, DWORD write_mode) {
 	// see https://stackoverflow.com/a/419736
 	if (!sz) {
 		sz = 4096;
@@ -44,21 +43,20 @@ static bool create_pipe_overlap (struct pipes_t *p, LPSECURITY_ATTRIBUTES attrs,
 	char name[MAX_PATH];
 	long id = InterlockedIncrement (&pipe_id);
 	snprintf (name, sizeof (name), "\\\\.\\pipe\\r2r-subproc.%d.%ld", (int)GetCurrentProcessId (), id);
-	p->id = id;
-	p->pipe_read = CreateNamedPipeA (name, PIPE_ACCESS_INBOUND | read_mode, PIPE_TYPE_BYTE | PIPE_WAIT, 1, sz, sz, 120 * 1000, attrs);
-	if (!p->pipe_read) {
+	p->read = CreateNamedPipeA (name, PIPE_ACCESS_INBOUND | read_mode, PIPE_TYPE_BYTE | PIPE_WAIT, 1, sz, sz, 120 * 1000, attrs);
+	if (!p->read) {
 		return FALSE;
 	}
-	p->pipe_write = CreateFileA (name, GENERIC_WRITE, 0, attrs, OPEN_EXISTING, FILE_ATTRIBUTE_NORMAL | write_mode, NULL);
-	if (p->pipe_write == INVALID_HANDLE_VALUE) {
-		CloseHandle (*pipe_read);
+	p->write = CreateFileA (name, GENERIC_WRITE, 0, attrs, OPEN_EXISTING, FILE_ATTRIBUTE_NORMAL | write_mode, NULL);
+	if (p->write == INVALID_HANDLE_VALUE) {
+		CloseHandle (p->read);
 		return FALSE;
 	}
 	return true;
 }
 
 R_API bool r2r_subprocess_init(void) {
-	r_vector_init (&pipes_vec, sizeof (struct pipes_t), pipes_free, NULL);
+	r_vector_init (&pipes_vec, sizeof (pipes), pipes_free, NULL);
 	r_vector_reserve (&pipes_vec, WORKERS_DEFAULT * 2);
 	pipes_vec_lock = r_th_lock_new (false);
 	pipes_vec_cond_empty = r_th_cond_new ();
@@ -72,7 +70,7 @@ R_API bool r2r_subprocess_init(void) {
 		if (!create_pipe_overlap (&p, &sattrs, 0, FILE_FLAG_OVERLAPPED, 0)) {
 			return false;
 		}
-		if (!SetHandleInformation (p.pipe_read, HANDLE_FLAG_INHERIT, 0)) {
+		if (!SetHandleInformation (p.read, HANDLE_FLAG_INHERIT, 0)) {
 			return false;
 		}
 		r_vector_push (&pipes_vec, &p);
@@ -200,20 +198,14 @@ R_API R2RSubprocess *r2r_subprocess_start(
 	}
 	proc->ret = -1;
 
-	struct pipes_t p;
 	r_th_lock_enter (pipes_vec_lock);
 	if (r_vector_empty (&pipes_vec)) {
 		r_th_cond_wait (pipes_vec_cond_empty, pipes_vec_lock);
 	}
-	r_vector_pop (&pipes_vec, &p);
-	proc->stdout_read = p.pipe_read;
-	stdout_write = p.pipe_write;
-	if (r_vector_empty (&pipes_vec)) {
-		r_th_cond_wait (pipes_vec_cond_empty, pipes_vec_lock);
-	}
-	r_vector_pop (&pipes_vec, &p);
-	proc->stderr_read = p.pipe_read;
-	stderr_write = p.pipe_write;
+	r_vector_pop (&pipes_vec, &proc->stdout_pipes);
+	stdout_write = proc->stdout_pipes.write;
+	r_vector_pop (&pipes_vec, &proc->stderr_pipes);
+	stderr_write = proc->stderr_pipes.write;
 	r_th_lock_leave (pipes_vec_lock);
 
 	SECURITY_ATTRIBUTES sattrs;
@@ -254,9 +246,6 @@ beach:
 	if (stdin_read) {
 		CloseHandle (stdin_read);
 	}
-	if (stderr_write) {
-		CloseHandle (stderr_write);
-	}
 	free (cmdline);
 	return proc;
 error:
@@ -264,6 +253,11 @@ error:
 		if (proc->stdin_write) {
 			CloseHandle (proc->stdin_write);
 		}
+		r_th_lock_enter (pipes_vec_lock);
+		r_vector_push (&pipes_vec, &proc->stderr_pipes);
+		r_vector_push (&pipes_vec, &proc->stdout_pipes);
+		r_th_cond_signal (pipes_vec_cond_empty);
+		r_th_lock_leave (pipes_vec_lock);
 		free (proc);
 		proc = NULL;
 	}
@@ -309,7 +303,7 @@ R_API bool r2r_subprocess_wait(R2RSubprocess *proc, ut64 timeout_ms) {
 	bool child_dead = false;
 
 #define DO_READ(which) \
-	if (!ReadFile (proc->which##_read, which##_buf, sizeof (which##_buf) - 1, NULL, &(which##_overlapped))) { \
+	if (!ReadFile (proc->which##_pipes.read, which##_buf, sizeof (which##_buf) - 1, NULL, &(which##_overlapped))) { \
 		if (GetLastError () != ERROR_IO_PENDING) { \
 			/* EOF or some other error */ \
 			which##_eof = true; \
@@ -350,7 +344,7 @@ R_API bool r2r_subprocess_wait(R2RSubprocess *proc, ut64 timeout_ms) {
 		DWORD signaled = WaitForMultipleObjects (handles.len, handles.a, FALSE, timeout);
 		if (!stdout_eof && signaled == stdout_index) {
 			DWORD r;
-			BOOL res = GetOverlappedResult (proc->stdout_read, &stdout_overlapped, &r, TRUE);
+			BOOL res = GetOverlappedResult (proc->stdout_pipes.read, &stdout_overlapped, &r, TRUE);
 			if (!res) {
 				stdout_eof = true;
 				continue;
@@ -364,7 +358,7 @@ R_API bool r2r_subprocess_wait(R2RSubprocess *proc, ut64 timeout_ms) {
 		}
 		if (!stderr_eof && signaled == stderr_index) {
 			DWORD read;
-			BOOL res = GetOverlappedResult (proc->stderr_read, &stderr_overlapped, &read, TRUE);
+			BOOL res = GetOverlappedResult (proc->stderr_pipes.read, &stderr_overlapped, &read, TRUE);
 			if (!res) {
 				stderr_eof = true;
 				continue;
@@ -382,6 +376,8 @@ R_API bool r2r_subprocess_wait(R2RSubprocess *proc, ut64 timeout_ms) {
 			if (GetExitCodeProcess (proc->proc, &exit_code)) {
 				proc->ret = exit_code;
 			}
+			CancelIoEx (proc->stderr_pipes.read, &stderr_overlapped);
+			CancelIoEx (proc->stdout_pipes.read, &stdout_overlapped);
 			continue;
 		}
 		break;
@@ -389,19 +385,7 @@ R_API bool r2r_subprocess_wait(R2RSubprocess *proc, ut64 timeout_ms) {
 	r_vector_clear (&handles);
 	CloseHandle (stdout_overlapped.hEvent);
 	CloseHandle (stderr_overlapped.hEvent);
-	struct pipes_t p;
-	r_th_lock_enter (pipes_vec_lock);
-	r_vector_pop (&pipes_vec, &p);
-	p.pipe_read = proc->stdout_read;
-	p.pipe_write = proc->;
-	if (r_vector_empty (&pipes_vec)) {
-		r_th_cond_wait (pipes_vec_cond_empty, pipes_vec_lock);
-	}
-	r_vector_pop (&pipes_vec, &p);
-	proc->stderr_read = p.pipe_read;
-	stderr_write = p.pipe_write;
-	r_th_lock_leave (pipes_vec_lock);
-	return stdout_eof && stderr_eof && child_dead;
+	return child_dead || (stdout_eof && stderr_eof);
 }
 
 R_API void r2r_subprocess_kill(R2RSubprocess *proc) {
@@ -429,9 +413,12 @@ R_API void r2r_subprocess_free(R2RSubprocess *proc) {
 	if (!proc) {
 		return;
 	}
+	r_th_lock_enter (pipes_vec_lock);
+	r_vector_push (&pipes_vec, &proc->stderr_pipes);
+	r_vector_push (&pipes_vec, &proc->stdout_pipes);
+	r_th_cond_signal (pipes_vec_cond_empty);
+	r_th_lock_leave (pipes_vec_lock);
 	CloseHandle (proc->stdin_write);
-	CloseHandle (proc->stdout_read);
-	CloseHandle (proc->stderr_read);
 	CloseHandle (proc->proc);
 	free (proc);
 }
