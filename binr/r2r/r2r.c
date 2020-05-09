@@ -150,7 +150,11 @@ static bool r2r_chdir_fromtest(const char *test_path) {
 }
 
 int main(int argc, char **argv) {
+#if __WINDOWS__
+	int workers_count = WORKERS_DEFAULT * WORKERS_MULTIPLIER;
+#else
 	int workers_count = WORKERS_DEFAULT;
+#endif
 	bool verbose = false;
 	bool nothing = false;
 	bool quiet = false;

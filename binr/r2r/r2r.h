@@ -11,6 +11,8 @@
 #define R2R_OS "linux"
 #elif defined(__APPLE__)
 #define R2R_OS "darwin"
+#elif defined(__WINDOWS__)
+#define R2R_OS "windows"
 #else
 #define R2R_OS "unknown"
 #endif
@@ -23,7 +25,8 @@
 #define R2R_ARCH "unknown"
 #endif
 
-#define WORKERS_DEFAULT 8
+#define WORKERS_DEFAULT 1
+#define WORKERS_MULTIPLIER 2
 #define R2R_ARCH_OS R2R_OS"-"R2R_ARCH
 
 typedef struct r2r_cmd_test_string_record {

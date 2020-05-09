@@ -19,6 +19,7 @@ struct r2r_subprocess_t {
 	pipes stdout_pipes;
 	pipes stderr_pipes;
 	HANDLE proc;
+	HANDLE thread;
 	int ret;
 	RStrBuf out;
 	RStrBuf err;
@@ -34,6 +35,7 @@ static volatile long pipe_id = 0;
 static RVector pipes_vec = { 0 };
 static RVector pipes_in_vec = { 0 };
 static RThreadLock *pipes_vec_lock = NULL;
+static RThreadSemaphore *workers_sem = NULL;
 
 static bool create_pipe_overlap(pipes *p, LPSECURITY_ATTRIBUTES attrs, DWORD sz, DWORD read_mode, DWORD write_mode) {
 	// see https://stackoverflow.com/a/419736
@@ -56,18 +58,25 @@ static bool create_pipe_overlap(pipes *p, LPSECURITY_ATTRIBUTES attrs, DWORD sz,
 }
 
 R_API bool r2r_subprocess_init(void) {
+	const int named_pipes_cnt = WORKERS_DEFAULT * WORKERS_MULTIPLIER * 2;
+	const int anon_pipes_cnt = WORKERS_DEFAULT * WORKERS_MULTIPLIER;
+
 	r_vector_init (&pipes_vec, sizeof (pipes), pipes_free, NULL);
 	r_vector_init (&pipes_in_vec, sizeof (pipes), pipes_free, NULL);
-	r_vector_reserve (&pipes_vec, WORKERS_DEFAULT * 2);
-	r_vector_reserve (&pipes_vec, WORKERS_DEFAULT);
+	r_vector_reserve (&pipes_vec, named_pipes_cnt);
+	r_vector_reserve (&pipes_in_vec, anon_pipes_cnt);
+
 	pipes_vec_lock = r_th_lock_new (false);
+	workers_sem = r_th_sem_new (WORKERS_DEFAULT);
+
 	SECURITY_ATTRIBUTES sattrs;
 	sattrs.nLength = sizeof (sattrs);
 	sattrs.bInheritHandle = TRUE;
 	sattrs.lpSecurityDescriptor = NULL;
 	size_t i;
 	pipes p;
-	for (i = 0; i < WORKERS_DEFAULT * 2; i++) {
+
+	for (i = 0; i < named_pipes_cnt; i++) {
 		if (!create_pipe_overlap (&p, &sattrs, 0, FILE_FLAG_OVERLAPPED, 0)) {
 			return false;
 		}
@@ -76,7 +85,7 @@ R_API bool r2r_subprocess_init(void) {
 		}
 		r_vector_push (&pipes_vec, &p);
 	}
-	for (i = 0; i < WORKERS_DEFAULT; i++) {
+	for (i = 0; i < anon_pipes_cnt; i++) {
 		if (!CreatePipe (&p.read, &p.write, &sattrs, 0)) {
 			return false;
 		}
@@ -91,6 +100,7 @@ R_API void r2r_subprocess_fini(void) {
 	r_vector_fini (&pipes_vec);
 	r_vector_fini (&pipes_in_vec);
 	r_th_lock_free (pipes_vec_lock);
+	r_th_sem_free (workers_sem);
 }
 
 // Create an env block that inherits the current vars but overrides the given ones
@@ -213,7 +223,7 @@ R_API R2RSubprocess *r2r_subprocess_start(
 	r_th_lock_leave (pipes_vec_lock);
 
 	PROCESS_INFORMATION proc_info = { 0 };
-	STARTUPINFO start_info = { 0 };
+	STARTUPINFOA start_info = { 0 };
 	start_info.cb = sizeof (start_info);
 	start_info.hStdError = proc->stderr_pipes.write;
 	start_info.hStdOutput = proc->stdout_pipes.write;
@@ -222,7 +232,7 @@ R_API R2RSubprocess *r2r_subprocess_start(
 
 	LPWSTR env = override_env (envvars, envvals, env_size);
 	if (!CreateProcessA (NULL, cmdline,
-			NULL, NULL, TRUE, CREATE_UNICODE_ENVIRONMENT, env,
+			NULL, NULL, TRUE, CREATE_SUSPENDED | CREATE_UNICODE_ENVIRONMENT, env,
 			NULL, &start_info, &proc_info)) {
 		free (env);
 		eprintf ("CreateProcess failed: %#x\n", (int)GetLastError ());
@@ -230,7 +240,7 @@ R_API R2RSubprocess *r2r_subprocess_start(
 	}
 	free (env);
 
-	CloseHandle (proc_info.hThread);
+	proc->thread = proc_info.hThread;
 	proc->proc = proc_info.hProcess;
 
 beach:
@@ -264,14 +274,18 @@ static ut64 now_us() {
 }
 
 R_API bool r2r_subprocess_wait(R2RSubprocess *proc, ut64 timeout_ms) {
+	r_th_sem_wait (workers_sem);
+	ResumeThread (proc->thread);
 	OVERLAPPED stdout_overlapped = { 0 };
 	stdout_overlapped.hEvent = CreateEvent (NULL, TRUE, FALSE, NULL);
 	if (!stdout_overlapped.hEvent) {
+		r_th_sem_post (workers_sem);
 		return false;
 	}
 	OVERLAPPED stderr_overlapped = { 0 };
 	stderr_overlapped.hEvent = CreateEvent (NULL, TRUE, FALSE, NULL);
 	if (!stderr_overlapped.hEvent) {
+		r_th_sem_post (workers_sem);
 		CloseHandle (stdout_overlapped.hEvent);
 		return false;
 	}
@@ -367,6 +381,7 @@ R_API bool r2r_subprocess_wait(R2RSubprocess *proc, ut64 timeout_ms) {
 		}
 		break;
 	}
+	r_th_sem_post (workers_sem);
 	r_vector_clear (&handles);
 	CloseHandle (stdout_overlapped.hEvent);
 	CloseHandle (stderr_overlapped.hEvent);
@@ -403,6 +418,7 @@ R_API void r2r_subprocess_free(R2RSubprocess *proc) {
 	r_vector_push (&pipes_vec, &proc->stdout_pipes);
 	r_vector_push (&pipes_in_vec, &proc->stdin_pipes);
 	r_th_lock_leave (pipes_vec_lock);
+	CloseHandle (proc->thread);
 	CloseHandle (proc->proc);
 	free (proc);
 }
