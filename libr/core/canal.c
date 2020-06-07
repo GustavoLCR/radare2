@@ -749,6 +749,25 @@ static bool is_entry_flag(RFlagItem *f) {
 	return f->space && !strcmp (f->space->name, R_FLAGS_FS_SYMBOLS) && r_str_startswith (f->name, "entry.");
 }
 
+static inline bool is_op_arm_fcn_init(RAnalOp *op) {
+	if (!op) {
+		return false;
+	}
+	if (op->type == R_ANAL_OP_TYPE_PUSH ||
+		op->type == R_ANAL_OP_TYPE_UPUSH ||
+		op->type == R_ANAL_OP_TYPE_RPUSH ||
+		op->type == R_ANAL_OP_TYPE_LOAD ||
+		op->type == R_ANAL_OP_TYPE_STORE) {
+		return true;
+	}
+	if (op->type == R_ANAL_OP_TYPE_MOV &&
+		op->dst && op->dst->reg && op->dst->reg->name &&
+		!strcmp (op->dst->reg->name, "ip")) {
+			return true;
+	}
+	return false;
+}
+
 static int __core_anal_fcn(RCore *core, ut64 at, ut64 from, int reftype, int depth) {
 	if (depth < 0) {
 //		printf ("Too deep for 0x%08"PFMT64x"\n", at);
@@ -770,13 +789,30 @@ static int __core_anal_fcn(RCore *core, ut64 at, ut64 from, int reftype, int dep
 		return false;
 	}
 	fcn->cc = r_str_constpool_get (&core->anal->constpool, r_anal_cc_default (core->anal));
-	hint = r_anal_hint_get (core->anal, at);
-	if (hint && hint->bits == 16) {
-		// expand 16bit for function
-		fcn->bits = 16;
+	ut64 addr;
+	int bits = r_anal_hint_bits_at (core->anal, at, &addr);
+	bits = bits ? bits : core->anal->bits;
+	if (addr != at && !strcmp (core->anal->cur->arch, "arm") && core->anal->bits <= 32) {
+		RAnalOp *op = r_core_anal_op (core, at, R_ANAL_OP_MASK_VAL);
+		if (is_op_arm_fcn_init (op)) {
+			fcn->bits = bits;
+		} else {
+			r_anal_op_free (op);
+			int new_bits = bits == 32 ? 16 : 32;
+			r_anal_hint_set_bits (core->anal, at, new_bits);
+			op = r_core_anal_op (core, at, R_ANAL_OP_MASK_VAL);
+			if (is_op_arm_fcn_init (op)) {
+				fcn->bits = new_bits;
+			} else {
+				fcn->bits = bits;
+			}
+			r_anal_hint_set_bits (core->anal, at, fcn->bits);
+			r_anal_op_free (op);
+		}
 	} else {
-		fcn->bits = core->anal->bits;
+		fcn->bits = bits;
 	}
+
 	fcn->addr = at;
 	fcn->name = getFunctionName (core, at);
 
@@ -4803,6 +4839,19 @@ static void getpcfromstack(RCore *core, RAnalEsil *esil) {
 	free (buf);
 }
 
+static inline void set_dst_if_thumb(RAnal *anal, RAnalOp *op, int arch, ut64 *dst) {
+	if (op->id != 14 && op->id != 15) {
+		return;
+	}
+	if ((*dst & 1) && (arch == R2_ARCH_THUMB || arch == R2_ARCH_ARM32)) {
+		*dst &= ~1;
+		r_anal_hint_set_bits (anal, *dst, 16);
+		r_reg_setv (anal->reg, "pc", *dst);
+	} else {
+		r_anal_hint_set_bits (anal, *dst, 32);
+	}
+}
+
 R_API void r_core_anal_esil(RCore *core, const char *str, const char *target) {
 	bool cfg_anal_strings = r_config_get_i (core->config, "anal.strings");
 	bool emu_lazy = r_config_get_i (core->config, "emu.lazy");
@@ -4906,7 +4955,7 @@ R_API void r_core_anal_esil(RCore *core, const char *str, const char *target) {
 
 	int arch = -1;
 	if (!strcmp (core->anal->cur->arch, "arm")) {
-		switch (core->anal->cur->bits) {
+		switch (core->anal->bits) {
 		case 64: arch = R2_ARCH_ARM64; break;
 		case 32: arch = R2_ARCH_ARM32; break;
 		case 16: arch = R2_ARCH_THUMB; break;
@@ -5049,7 +5098,7 @@ repeat:
 		// looks like ^C is handled by esil_parse !!!!
 		//r_anal_esil_dumpstack (ESIL);
 		//r_anal_esil_stack_free (ESIL);
-		switch (op.type) {
+		switch (op.type & R_ANAL_OP_TYPE_MASK) {
 		case R_ANAL_OP_TYPE_LEA:
 			// arm64
 			if (core->anal->cur && arch == R2_ARCH_ARM64) {
@@ -5167,10 +5216,6 @@ repeat:
 			break;
 		case R_ANAL_OP_TYPE_UJMP:
 		case R_ANAL_OP_TYPE_UCALL:
-		case R_ANAL_OP_TYPE_ICALL:
-		case R_ANAL_OP_TYPE_RCALL:
-		case R_ANAL_OP_TYPE_IRCALL:
-		case R_ANAL_OP_TYPE_MJMP:
 			{
 				ut64 dst = core->anal->esil->jump_target;
 				if (dst == 0 || dst == UT64_MAX) {
@@ -5178,6 +5223,7 @@ repeat:
 				}
 				if (CHECKREF (dst)) {
 					if (myvalid (core->io, dst)) {
+						set_dst_if_thumb (core->anal, &op, arch, &dst);
 						RAnalRefType ref =
 							(op.type & R_ANAL_OP_TYPE_MASK) == R_ANAL_OP_TYPE_UCALL
 							? R_ANAL_REF_TYPE_CALL

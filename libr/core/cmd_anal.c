@@ -4517,6 +4517,14 @@ static ut64 initializeEsil(RCore *core) {
 	return addr;
 }
 
+static bool archIsThumbable(RCore *core) {
+	RAsm *as = core ? core->rasm : NULL;
+	if (as && as->cur && as->bits <= 32 && as->cur->name) {
+		return strstr (as->cur->name, "arm");
+	}
+	return false;
+}
+
 R_API int r_core_esil_step(RCore *core, ut64 until_addr, const char *until_expr, ut64 *prev_addr, bool stepOver) {
 #define return_tail(x) { tail_return_value = x; goto tail_return; }
 	int tail_return_value = 0;
@@ -4703,16 +4711,30 @@ repeat:
 	}
 	// esil->verbose ?
 	// eprintf ("REPE 0x%llx %s => 0x%llx\n", addr, R_STRBUF_SAFEGET (&op.esil), r_reg_getv (core->anal->reg, "PC"));
+	ut64 pc = r_reg_getv (core->anal->reg, name);
+	if (archIsThumbable (core) && (op.id == 14 || op.id == 15)) {
+		int type = op.type & R_ANAL_OP_TYPE_MASK;
+		if (type == R_ANAL_OP_TYPE_UJMP || type == R_ANAL_OP_TYPE_UCALL) {
+			if (pc != UT32_MAX && pc & 1) {
+				pc &= ~1;
+				r_anal_hint_set_bits (core->anal, pc, 16);
+				r_debug_reg_set (core->dbg, "PC", pc);
+				r_reg_setv (core->anal->reg, name, pc);
+			} else {
+				r_anal_hint_set_bits (core->anal, pc, 32);
+			}
+		} else {
+			r_anal_hint_set_bits (core->anal, pc, core->anal->bits == 32 ? 16 : 32);
+		}
+	}
 
 	st64 follow = (st64)r_config_get_i (core->config, "dbg.follow");
 	if (follow > 0) {
-		ut64 pc = r_debug_reg_get (core->dbg, "PC");
 		if ((pc < core->offset) || (pc > (core->offset + follow))) {
 			r_core_cmd0 (core, "sr PC");
 		}
 	}
 	// check breakpoints
-	ut64 pc = r_reg_getv (core->anal->reg, name);
 	if (r_bp_get_at (core->dbg->bp, pc)) {
 		r_cons_printf ("[ESIL] hit breakpoint at 0x%"PFMT64x "\n", pc);
 		return_tail (0);
@@ -6650,6 +6672,7 @@ static void _anal_calls(RCore *core, ut64 addr, ut64 addr_end, bool printCommand
 		r_anal_hint_free (hint);
 		if (setBits != core->rasm->bits) {
 			r_config_set_i (core->config, "asm.bits", setBits);
+			addr -= addr % core->rasm->pcalign;
 		}
 		if (r_anal_op (core->anal, &op, addr, buf + bufi, bsz - bufi, 0) > 0) {
 			if (op.size < 1) {
@@ -8757,14 +8780,6 @@ static void cmd_anal_aad(RCore *core, const char *input) {
 	r_list_free (list);
 }
 
-static bool archIsThumbable(RCore *core) {
-	RAsm *as = core ? core->rasm : NULL;
-	if (as && as->cur && as->bits <= 32 && as->cur->name) {
-		return strstr (as->cur->name, "arm");
-	}
-	return false;
-}
-
 static void _CbInRangeAav(RCore *core, ut64 from, ut64 to, int vsize, int count, void *user) {
 	bool asterisk = user != NULL;
 	int arch_align = r_anal_archinfo (core->anal, R_ANAL_ARCHINFO_ALIGN);
@@ -8775,15 +8790,16 @@ static void _CbInRangeAav(RCore *core, ut64 from, ut64 to, int vsize, int count,
 		if ((from % align) || (to % align)) {
 			bool itsFine = false;
 			if (archIsThumbable (core)) {
-				if ((from & 1) || (to & 1)) {
+				if (to & 1) {
+					to &= ~1;
 					itsFine = true;
 				}
 			}
 			if (!itsFine) {
+				if (core->anal->verbose) {
+					eprintf ("Warning: aav: false positive in 0x%08"PFMT64x"\n", from);
+				}
 				return;
-			}
-			if (core->anal->verbose) {
-				eprintf ("Warning: aav: false positive in 0x%08"PFMT64x"\n", from);
 			}
 		}
 	}

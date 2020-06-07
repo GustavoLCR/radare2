@@ -1153,14 +1153,16 @@ R_API RAnalHint *r_core_hint_begin(RCore *core, RAnalHint* hint, ut64 at) {
 			/* TODO: do something here */
 		}
 	}
-	RAnalFunction *fcn = r_anal_get_fcn_in (core->anal, at, 0);
-	if (fcn) {
-		if (fcn->bits == 16 || fcn->bits == 32) {
-			if (!hint) {
-				hint = R_NEW0 (RAnalHint);
+	if (!hint || (hint && !hint->bits)) {
+		RAnalFunction *fcn = r_anal_get_fcn_in (core->anal, at, 0);
+		if (fcn) {
+			if (fcn->bits == 16 || fcn->bits == 32) {
+				if (!hint) {
+					hint = R_NEW0 (RAnalHint);
+				}
+				hint->bits = fcn->bits;
+				hint->new_bits = fcn->bits;
 			}
-			hint->bits = fcn->bits;
-			hint->new_bits = fcn->bits;
 		}
 	}
 	return hint;
