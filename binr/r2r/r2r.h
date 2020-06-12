@@ -25,7 +25,7 @@
 #define R2R_ARCH "unknown"
 #endif
 
-#define WORKERS_DEFAULT 1
+#define WORKERS_DEFAULT 8
 #define WORKERS_MULTIPLIER 2
 #define R2R_ARCH_OS R2R_OS"-"R2R_ARCH
 

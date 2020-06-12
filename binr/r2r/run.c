@@ -276,16 +276,17 @@ static ut64 now_us() {
 R_API bool r2r_subprocess_wait(R2RSubprocess *proc, ut64 timeout_ms) {
 	r_th_sem_wait (workers_sem);
 	ResumeThread (proc->thread);
+	WaitForSingleObject (proc->proc, timeout_ms);
+	r_th_sem_post (workers_sem);
+
 	OVERLAPPED stdout_overlapped = { 0 };
 	stdout_overlapped.hEvent = CreateEvent (NULL, TRUE, FALSE, NULL);
 	if (!stdout_overlapped.hEvent) {
-		r_th_sem_post (workers_sem);
 		return false;
 	}
 	OVERLAPPED stderr_overlapped = { 0 };
 	stderr_overlapped.hEvent = CreateEvent (NULL, TRUE, FALSE, NULL);
 	if (!stderr_overlapped.hEvent) {
-		r_th_sem_post (workers_sem);
 		CloseHandle (stdout_overlapped.hEvent);
 		return false;
 	}
@@ -381,7 +382,6 @@ R_API bool r2r_subprocess_wait(R2RSubprocess *proc, ut64 timeout_ms) {
 		}
 		break;
 	}
-	r_th_sem_post (workers_sem);
 	r_vector_clear (&handles);
 	CloseHandle (stdout_overlapped.hEvent);
 	CloseHandle (stderr_overlapped.hEvent);
