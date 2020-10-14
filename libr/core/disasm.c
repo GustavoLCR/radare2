@@ -232,7 +232,8 @@ typedef struct {
 	const char *color_func_var_type;
 	const char *color_func_var_addr;
 
-	RFlagItem *lastflag;
+	RFlagItem lastflag;
+	bool has_lastflag;
 	RAnalHint *hint;
 	RPrint *print;
 
@@ -2177,7 +2178,8 @@ static void __preline_flag(RDisasmState *ds, RFlagItem *flag) {
 			if (color) {
 				r_cons_strcat (color);
 				free (color);
-				ds->lastflag = flag;
+				ds->lastflag = *flag;
+				ds->has_lastflag = true;
 				hasColor = true;
 			}
 		}
@@ -2268,7 +2270,8 @@ static void ds_show_flags(RDisasmState *ds) {
 				if (color) {
 					r_cons_strcat (color);
 					free (color);
-					ds->lastflag = flag;
+					ds->lastflag = *flag;
+					ds->has_lastflag = true;
 					hasColor = true;
 				}
 			}
@@ -2636,24 +2639,16 @@ static void ds_print_lines_left(RDisasmState *ds) {
 		free (sect);
 	}
 	if (ds->show_symbols) {
-		static RFlagItem sfi = R_EMPTY;
 		const char *name = "";
 		int delta = 0;
 		if (ds->fcn) {
-			sfi.offset = ds->fcn->addr;
-			sfi.name = ds->fcn->name;
-			ds->lastflag = &sfi;
-		} else {
-			RFlagItem *fi = r_flag_get_at (core->flags, ds->at, !ds->lastflag);
-			if (fi) { // && (!ds->lastflag || fi->offset != ds->at))
-				sfi.offset = fi->offset;
-				sfi.name = fi->name;
-				ds->lastflag = &sfi;
-			}
+			ds->lastflag.offset = ds->fcn->addr;
+			ds->lastflag.name = ds->fcn->name;
+			ds->has_lastflag = true;
 		}
-		if (ds->lastflag && ds->lastflag->name) {
-			name = ds->lastflag->name;
-			delta = ds->at - ds->lastflag->offset;
+		if (ds->has_lastflag) {
+			name = ds->lastflag.name;
+			delta = ds->at - ds->lastflag.offset;
 		}
 		{
 			char *str = r_str_newf ("%s + %-4d", name, delta);
@@ -2697,9 +2692,8 @@ static void ds_print_offset(RDisasmState *ds) {
 	ut64 at = ds->vat;
 
 	bool hasCustomColor = false;
-	// probably tooslow
-	RFlagItem *f = r_flag_get_at (core->flags, at, 1);
-	if (ds->show_color && f) { // ds->lastflag) {
+	if (ds->show_color && ds->has_lastflag) {
+		RFlagItem *f = &ds->lastflag;
 		const char *color = f->color;
 		if (ds->at >= f->offset && ds->at < f->offset + f->size) {
 		//	if (r_itv_inrange (f->itv, ds->at))
@@ -2715,7 +2709,6 @@ static void ds_print_offset(RDisasmState *ds) {
 	}
 	r_print_set_screenbounds (core->print, at);
 	if (ds->show_offset) {
-		static RFlagItem sfi = R_EMPTY;
 		const char *label = NULL;
 		RFlagItem *fi;
 		int delta = -1;
@@ -2729,32 +2722,33 @@ static void ds_print_offset(RDisasmState *ds) {
 			}
 			if (f) {
 				delta = at - f->addr;
-				sfi.name = f->name;
-				sfi.offset = f->addr;
-				ds->lastflag = &sfi;
+				ds->lastflag.name = f->name;
+				ds->lastflag.offset = f->addr;
+				ds->has_lastflag = true;
 				label = f->name;
 			} else {
 				if (ds->show_reloff_flags) {
 					/* XXX: this is wrong if starting to disasm after a flag */
 					fi = r_flag_get_i (core->flags, at);
 					if (fi) {
-						ds->lastflag = fi;
+						ds->lastflag = *fi;
+						ds->has_lastflag = true;
 					}
-					if (ds->lastflag) {
-						if (ds->lastflag->offset == at) {
+					if (ds->has_lastflag) {
+						if (ds->lastflag.offset == at) {
 							delta = 0;
 						} else {
-							delta = at - ds->lastflag->offset;
+							delta = at - ds->lastflag.offset;
 						}
 					} else {
 						delta = at - core->offset;
 					}
-					if (ds->lastflag) {
-						label = ds->lastflag->name;
+					if (ds->has_lastflag) {
+						label = ds->lastflag.name;
 					}
 				}
 			}
-			if (!ds->lastflag) {
+			if (!ds->has_lastflag) {
 				delta = 0;
 			}
 		}
@@ -4440,11 +4434,7 @@ static void ds_pre_emulation(RDisasmState *ds) {
 	if (!ds->pre_emu) {
 		return;
 	}
-	RFlagItem *f = r_flag_get_at (ds->core->flags, ds->core->offset, true);
-	if (!f) {
-		return;
-	}
-	ut64 base = f->offset;
+	ut64 base = ds->lastflag.offset;
 	RAnalEsil *esil = ds->core->anal->esil;
 	int i, end = ds->core->offset - base;
 	int maxemu = 1024 * 1024;
@@ -5239,6 +5229,11 @@ toro:
 			r_cons_break_pop ();
 			ds_free (ds);
 			return 0; //break;
+		}
+		RFlagItem *fi = r_flag_get_at (core->flags, ds->at, !ds->has_lastflag);
+		if (fi) {
+			ds->lastflag = *fi;
+			ds->has_lastflag = true;
 		}
 		if (core->print->flags & R_PRINT_FLAGS_UNALLOC) {
 			if (!core->anal->iob.is_valid_offset (core->anal->iob.io, ds->at, 0)) {
