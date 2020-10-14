@@ -1999,6 +1999,7 @@ static void __anal_fcn_check_bp_use(RAnal *anal, RAnalFunction *fcn) {
 			case R_ANAL_OP_TYPE_LEA:
 				if (can_affect_bp (anal, &op) && op.src[0] && op.src[0]->reg && op.src[0]->reg->name
 				&& strcmp (op.src[0]->reg->name, anal->reg->name[R_REG_NAME_SP])) {
+					free (buf);
 					fcn->bp_frame = false;
 					r_anal_op_fini (&op);
 					return;
@@ -2020,6 +2021,7 @@ static void __anal_fcn_check_bp_use(RAnal *anal, RAnalFunction *fcn) {
 // op.dst is not filled for these operations, so for now, check for bp as dst looks like this; in the future it may be just replaced with call to can_affect_bp
  				pos = op.opex.ptr ? strstr (op.opex.ptr, str_to_find) : NULL;
 				if (pos && pos - op.opex.ptr < 60) {
+					free (buf);
 					fcn->bp_frame = false;
 					r_anal_op_fini (&op);
 					return;
@@ -2027,6 +2029,7 @@ static void __anal_fcn_check_bp_use(RAnal *anal, RAnalFunction *fcn) {
 				break;
 			case R_ANAL_OP_TYPE_XCHG:
 				if (op.opex.ptr && strstr (op.opex.ptr, str_to_find)) {
+					free (buf);
 					fcn->bp_frame = false;
 					r_anal_op_fini (&op);
 					return;
