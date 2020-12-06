@@ -2,10 +2,10 @@
 
 #include "microsoft_demangle.h"
 #include <ctype.h>
-#include <r_cons.h>
 
 #define _R_LIST_C
 #include <r_list.h>
+#include <r_util/r_str.h>
 
 #define MICROSOFT_NAME_LEN (256)
 #define MICROSOFR_CLASS_NAMESPACE_LEN (256)
@@ -125,7 +125,7 @@ static size_t get_template(const char *buf, SStrInfo *str_info, bool memorize);
 static char *get_num(SStateInfo *state);
 static EDemanglerErr parse_data_type(const char *sym, SDataType *demangled_type, size_t *len);
 static size_t get_namespace_and_name(const char *buf, STypeCodeStr *type_code_str, size_t *amount_of_names, bool memorize);
-static inline EDemanglerErr get_storage_class(const char encoded, const char **storage_class);
+static inline EDemanglerErr get_storage_class(const char encoded, const char **storage_class, bool *is_member);
 static inline size_t get_ptr_modifier(const char encoded, SDataType *ptr_modifier);
 static EDemanglerErr parse_function(const char *sym, STypeCodeStr *type_code_str, char **demangled_function, size_t *chars_read);
 static EDemanglerErr parse_microsoft_mangled_name(const char *sym, char **demangled_name, size_t *chars_read);
@@ -323,6 +323,10 @@ static int get_template_params(const char *sym, size_t *amount_of_read_chars, ch
 				res = tmp;
 			}
 			break;
+		case 'S':
+			// empty non-type parameter pack
+			res = strdup ("");
+			break;
 		default:
 			break;
 		}
@@ -419,14 +423,17 @@ static size_t get_operator_code(const char *buf, RList *names_l, bool memorize) 
 		case 'C': SET_OPERATOR_CODE ("string"); break;
 		case 'D': SET_OPERATOR_CODE ("vbase_dtor"); break;
 		case 'E': SET_OPERATOR_CODE ("vector_dtor"); break;
+		case 'F': SET_OPERATOR_CODE ("default_ctor_closure"); break;
 		case 'G': SET_OPERATOR_CODE ("scalar_dtor"); break;
 		case 'H': SET_OPERATOR_CODE ("vector_ctor_iter"); break;
 		case 'I': SET_OPERATOR_CODE ("vector_dtor_iter"); break;
 		case 'J': SET_OPERATOR_CODE ("vector_vbase_ctor_iter"); break;
+		case 'K': SET_OPERATOR_CODE ("virtual_displacement_map"); break;
 		case 'L': SET_OPERATOR_CODE ("eh_vector_ctor_iter"); break;
 		case 'M': SET_OPERATOR_CODE ("eh_vector_dtor_iter"); break;
 		case 'N': SET_OPERATOR_CODE ("eh_vector_vbase_ctor_iter"); break;
 		case 'O': SET_OPERATOR_CODE ("copy_ctor_closure"); break;
+		case 'P': SET_OPERATOR_CODE ("udt_returning"); break;
 		case 'R':
 			switch (*++buf) {
 			case '0': {
@@ -436,7 +443,7 @@ static size_t get_operator_code(const char *buf, RList *names_l, bool memorize) 
 					r_list_free (names_l);
 					return 0;
 				}
-				read_len += len + 2;
+				read_len += len + 1;
 				str = r_str_append (str, " `RTTI Type Descriptor'");
 				SET_OPERATOR_CODE (str);
 				free (str);
@@ -444,6 +451,7 @@ static size_t get_operator_code(const char *buf, RList *names_l, bool memorize) 
 			}
 			case '1': {
 				SStateInfo state;
+				char *str = NULL;
 				init_state_struct (&state, buf + 1);
 				char *a = get_num (&state);
 				char *b = get_num (&state);
@@ -453,8 +461,14 @@ static size_t get_operator_code(const char *buf, RList *names_l, bool memorize) 
 					r_list_free (names_l);
 					return 0;
 				}
-				read_len += state.amount_of_read_chars + 1;
-				r_str_newf ("`RTTI Base Class Descriptor at (%s,%s,%s,%s)'", a, b, c, d);
+				read_len += state.amount_of_read_chars;
+				str = r_str_newf ("`RTTI Base Class Descriptor at (%s,%s,%s,%s)'", a, b, c, d);
+				free (a);
+				free (b);
+				free (c);
+				free (d);
+				SET_OPERATOR_CODE (str);
+				free (str);
 				break;
 			}
 			case '2': SET_OPERATOR_CODE ("`RTTI Base Class Array'"); break;
@@ -462,13 +476,34 @@ static size_t get_operator_code(const char *buf, RList *names_l, bool memorize) 
 			case '4': SET_OPERATOR_CODE ("`RTTI Complete Object Locator'"); break;
 			default: return 0;
 			}
+			read_len++;
 			break;
 		case 'S': SET_OPERATOR_CODE ("local_vftable"); break;
 		case 'T': SET_OPERATOR_CODE ("local_vftable_ctor_closure"); break;
 		case 'U': SET_OPERATOR_CODE ("operator new[]"); break;
 		case 'V': SET_OPERATOR_CODE ("operator delete[]"); break;
+		case 'W': SET_OPERATOR_CODE ("omini_callsig"); break;
 		case 'X': SET_OPERATOR_CODE ("placement_new_closure"); break;
 		case 'Y': SET_OPERATOR_CODE ("placement_delete_closure"); break;
+		case '_':
+			switch (*++buf) {
+			case 'A': SET_OPERATOR_CODE ("managed_vector_ctor_iter"); break;
+			case 'B': SET_OPERATOR_CODE ("managed_vector_dtor_iter"); break;
+			case 'C': SET_OPERATOR_CODE ("eh_vector_copy_ctor_iter"); break;
+			case 'D': SET_OPERATOR_CODE ("eh_vector_vbase_copy_ctor_iter"); break;
+			case 'E': SET_OPERATOR_CODE ("dynamic_initializer"); break;
+			case 'F': SET_OPERATOR_CODE ("dynamic_atexit_dtor"); break;
+			case 'G': SET_OPERATOR_CODE ("vector_copy_ctor_iter"); break;
+			case 'H': SET_OPERATOR_CODE ("vector_vbase_copy_ctor_iter"); break;
+			case 'I': SET_OPERATOR_CODE ("managed_vector_copy_ctor_iter"); break;
+			case 'J': SET_OPERATOR_CODE ("local_static_thread_guard"); break;
+			case 'K': SET_OPERATOR_CODE ("user_defined_literal"); break;
+			default:
+				r_list_free (names_l);
+				return 0;
+			}
+			read_len++;
+			break;
 		default:
 			r_list_free (names_l);
 			return 0;
@@ -524,25 +559,27 @@ static size_t get_template(const char *buf, SStrInfo *str_info, bool memorize) {
 		buf += len;
 	}
 
-	if (*buf != '@') {
-		copy_string (&type_code_str, "<", 0);
-	}
+	copy_string (&type_code_str, "<", 0);
 
 	abbr_names = new_abbr_names;
 
 	// get identifier
 	size_t i = 0;
+	bool comma = false;
 	while (*buf != '@') {
-		if (i) {
-			copy_string (&type_code_str, ", ", 0);
-		}
 		if (get_type_code_string (buf, &i, &str_type_code) != eDemanglerErrOK) {
 			if (get_template_params (buf, &i, &str_type_code) != eDemanglerErrOK) {
 				len = 0;
 				goto get_template_err;
 			}
 		}
-		copy_string (&type_code_str, str_type_code, 0);
+		if (*str_type_code) {
+			if (comma) {
+				copy_string (&type_code_str, ", ", 0);
+			}
+			copy_string (&type_code_str, str_type_code, 0);
+			comma = true;
+		}
 		buf += i;
 		len += i;
 		R_FREE (str_type_code);
@@ -551,9 +588,9 @@ static size_t get_template(const char *buf, SStrInfo *str_info, bool memorize) {
 		len = 0;
 		goto get_template_err;
 	}
-	if (i) {
-		copy_string (&type_code_str, ">", 0);
-	}
+
+	copy_string (&type_code_str, ">", 0);
+
 	buf++;
 	len++;
 
@@ -629,7 +666,7 @@ static size_t get_namespace_and_name(const char *buf, STypeCodeStr *type_code_st
 			break;
 		}
 
-		// check is it teamplate???
+		// check is it template???
 		if ((*tmp == '?') && (*(tmp + 1) == '$')) {
 			size_t i = 0;
 			i = get_template (tmp + 2, str_info, memorize);
@@ -642,8 +679,6 @@ static size_t get_namespace_and_name(const char *buf, STypeCodeStr *type_code_st
 			prev_pos = tmp + i + 2;
 			curr_pos = strchr (prev_pos, '@');
 			read_len += i + 2;
-//			if (curr_pos)
-//				read_len++;
 			continue;
 		}
 
@@ -775,6 +810,7 @@ get_namespace_and_name_err:
 #define SINGLEQUOTED_R 'R'
 #define SINGLEQUOTED_Q 'Q'
 #define SINGLEQUOTED_A 'A'
+#define SINGLEQUOTED_L 'L'
 #define SINGLEQUOTED__ '_'
 #define SINGLEQUOTED_$ '$'
 #define CHAR_WITH_QUOTES(letter) (SINGLEQUOTED_##letter)
@@ -785,29 +821,31 @@ get_namespace_and_name_err:
 	(state)->buff_for_parsing++; \
 	(state)->state = eTCStateEnd; \
 }
-#define ONE_LETTER_ACTIION(action, type) \
+#define ONE_LETTER_ACTION(action, type) \
 	static void tc_state_##action(SStateInfo *state, STypeCodeStr *type_code_str) \
 	{ \
-		if (copy_string(type_code_str, type, 0) == 0) { \
+		if (copy_string (type_code_str, type, 0) == 0) { \
 			state->err = eTCStateMachineErrAlloc; \
 		} \
 		state->state = eTCStateEnd; \
 	} \
 
-ONE_LETTER_ACTIION(X, "void")
-ONE_LETTER_ACTIION(D, "char")
-ONE_LETTER_ACTIION(C, "signed char")
-ONE_LETTER_ACTIION(E, "unsigned char")
-ONE_LETTER_ACTIION(F, "short int")
-ONE_LETTER_ACTIION(G, "unsigned short int")
-ONE_LETTER_ACTIION(H, "int")
-ONE_LETTER_ACTIION(I, "unsigned int")
-ONE_LETTER_ACTIION(J, "long int")
-ONE_LETTER_ACTIION(K, "unsigned long int")
-ONE_LETTER_ACTIION(M, "float")
-ONE_LETTER_ACTIION(N, "double")
-ONE_LETTER_ACTIION(Z, "varargs ...")
-ONE_LETTER_ACTIION(O, "long double")
+ONE_LETTER_ACTION(X, "void")
+ONE_LETTER_ACTION(D, "char")
+ONE_LETTER_ACTION(C, "signed char")
+ONE_LETTER_ACTION(E, "unsigned char")
+ONE_LETTER_ACTION(F, "short int")
+ONE_LETTER_ACTION(G, "unsigned short int")
+ONE_LETTER_ACTION(H, "int")
+ONE_LETTER_ACTION(I, "unsigned int")
+ONE_LETTER_ACTION(J, "long int")
+ONE_LETTER_ACTION(K, "unsigned long int")
+ONE_LETTER_ACTION(M, "float")
+ONE_LETTER_ACTION(N, "double")
+ONE_LETTER_ACTION(Z, "...")
+ONE_LETTER_ACTION(O, "long double")
+
+#undef ONE_LETTER_ACTION
 
 DEF_STATE_ACTION(_)
 {
@@ -817,12 +855,22 @@ DEF_STATE_ACTION(_)
 		break;
 
 	switch(*(state->buff_for_parsing)) {
-		PROCESS_CASE (J, "long long(__int64)")
-		PROCESS_CASE (K, "unsigned long long(unsigned __int64)")
-		PROCESS_CASE (T, "long double(80 bit precision)")
-		PROCESS_CASE (Z, "long double(64 bit precision)")
-		PROCESS_CASE (W, "wchar_t")
+		PROCESS_CASE (D, "__int8")
+		PROCESS_CASE (E, "unsigned __int8")
+		PROCESS_CASE (F, "__int16")
+		PROCESS_CASE (G, "unsigned __int16")
+		PROCESS_CASE (H, "__int32")
+		PROCESS_CASE (I, "unsigned __int32")
+		PROCESS_CASE (J, "__int64")
+		PROCESS_CASE (K, "unsigned __int64")
+		PROCESS_CASE (L, "__int128")
+		PROCESS_CASE (M, "unsigned __int128")
 		PROCESS_CASE (N, "bool")
+		PROCESS_CASE (S, "char16_t")
+		PROCESS_CASE (T, "long double(80 bit precision)")
+		PROCESS_CASE (U, "char32_t")
+		PROCESS_CASE (W, "wchar_t")
+		PROCESS_CASE (Z, "long double(64 bit precision)")
 		default:
 			state->err = eTCStateMachineErrUncorrectTypeCode;
 			break;
@@ -939,22 +987,17 @@ DEF_STATE_ACTION(V)
 
 static char *get_num(SStateInfo *state) {
 	char *ptr = NULL;
-	if (*state->buff_for_parsing >= '0' && *state->buff_for_parsing <= '8') {
-		ptr = malloc (2);
-		if (!ptr) {
-			return NULL;
-		}
-		ptr[0] = *state->buff_for_parsing + 1;
-		ptr[1] = '\0';
+	bool negative = false;
+	st32 ret = 0;
+	if (*state->buff_for_parsing == '?') {
+		negative = true;
 		state->buff_for_parsing++;
 		state->amount_of_read_chars++;
-	} else if (*state->buff_for_parsing == '9') {
-		ptr = strdup ("10");
-		state->buff_for_parsing++;
-		state->amount_of_read_chars++;
-	} else if (*state->buff_for_parsing >= 'A' && *state->buff_for_parsing <= 'P') {
-		ut32 ret = 0;
+	}
 
+	if (*state->buff_for_parsing >= '0' && *state->buff_for_parsing <= '9') {
+		ret = *state->buff_for_parsing - '0' + 1;
+	} else if (*state->buff_for_parsing >= 'A' && *state->buff_for_parsing <= 'P') {
 		while (*state->buff_for_parsing >= 'A' && *state->buff_for_parsing <= 'P') {
 			ret *= 16;
 			ret += *state->buff_for_parsing - 'A';
@@ -965,12 +1008,11 @@ static char *get_num(SStateInfo *state) {
 		if (*state->buff_for_parsing != '@') {
 			return NULL;
 		}
-
-		ptr = r_str_newf ("%u", ret);
-		state->buff_for_parsing++;
-		state->amount_of_read_chars++;
 	}
 
+	ptr = negative ? r_str_newf ("%d", -ret) : r_str_newf ("%u", ret);
+	state->buff_for_parsing++;
+	state->amount_of_read_chars++;
 	return ptr;
 }
 
@@ -1026,14 +1068,15 @@ static inline void parse_type_modifier(SStateInfo *state, STypeCodeStr *type_cod
 		}
 		state->amount_of_read_chars += 2;
 	}
-	
+
 	SDataType mod2;
 	i = get_ptr_modifier (*state->buff_for_parsing, &mod2);
 	state->buff_for_parsing += i;
 	state->amount_of_read_chars += i;
 
 	const char *storage_class;
-	if (get_storage_class (*state->buff_for_parsing, &storage_class) != eDemanglerErrOK) {
+	bool is_member;
+	if (get_storage_class (*state->buff_for_parsing, &storage_class, &is_member) != eDemanglerErrOK) {
 		state->err = eTCStateMachineErrUnsupportedTypeCode;
 		goto MODIFIER_err;
 	}
@@ -1046,7 +1089,7 @@ static inline void parse_type_modifier(SStateInfo *state, STypeCodeStr *type_cod
 	state->buff_for_parsing++;
 	state->amount_of_read_chars++;
 
-	if (*state->buff_for_parsing == 'Y') {
+	if (!is_member && *state->buff_for_parsing == 'Y') {
 		char *n1;
 		int num;
 
@@ -1058,6 +1101,10 @@ static inline void parse_type_modifier(SStateInfo *state, STypeCodeStr *type_cod
 		num = atoi (n1);
 		R_FREE (n1);
 
+		if (num < 0) {
+			state->err = eTCStateMachineErrUncorrectTypeCode;
+			goto MODIFIER_err;
+		}
 		copy_string (&tmp_str, " ", 0);
 		copy_string (&tmp_str, "(", 0);
 		copy_string (&tmp_str, modifier.type_str, modifier.curr_pos);
@@ -1077,6 +1124,18 @@ static inline void parse_type_modifier(SStateInfo *state, STypeCodeStr *type_cod
 		copy_string (&tmp_str, " ", 0);
 		copy_string (&tmp_str, modifier.type_str, modifier.curr_pos);
 		copy_string (&tmp_str, mod.left, 0);
+
+		if (is_member) {
+			i = get_namespace_and_name (state->buff_for_parsing, &tmp_str, NULL, true);
+			if (!i) {
+				state->err = eTCStateMachineErrUnsupportedTypeCode;
+				goto MODIFIER_err;
+			}
+			state->amount_of_read_chars += i + 1;
+			state->buff_for_parsing += i + 1;
+			copy_string (&tmp_str, "::", 2);
+		}
+
 		if (clr_type) {
 			char *str = strdup (modifier_str);
 			if (!str) {
@@ -1253,7 +1312,7 @@ static void pf(SStateInfo *state, STypeCodeStr *type_code_str, const char *point
 
 	// return type
 	if (*state->buff_for_parsing == '?') {
-		err = get_storage_class (*++state->buff_for_parsing, &storage);
+		err = get_storage_class (*++state->buff_for_parsing, &storage, NULL);
 		if (err != eDemanglerErrOK) {
 			state->err = eTCStateMachineErrUncorrectTypeCode;
 			return;
@@ -1261,6 +1320,7 @@ static void pf(SStateInfo *state, STypeCodeStr *type_code_str, const char *point
 		state->buff_for_parsing++;
 		state->amount_of_read_chars += 2;
 	}
+
 	err = get_type_code_string (state->buff_for_parsing, &i, &ret_type);
 	if (err != eDemanglerErrOK) {
 		state->err = eTCStateMachineErrUnsupportedTypeCode;
@@ -1535,27 +1595,55 @@ static inline size_t get_ptr_modifier(const char encoded, SDataType *ptr_modifie
 	return read;
 }
 
-static inline EDemanglerErr get_storage_class(const char encoded, const char **storage_class) {
+static inline EDemanglerErr get_storage_class(const char encoded, const char **storage_class, bool *is_member) {
+	bool member = false;
 	switch (encoded) {
+	case 'Q':
+	case 'U':
+	case 'Y':
+		member = true;
+		// fallthrough
 	case 'A':
 		*storage_class = NULL;
 		break; // non-const
+	case 'R':
+	case 'V':
+	case 'Z':
+		member = true;
+		// fallthrough
 	case 'B':
 	case 'J':
 		*storage_class = "const";
 		break;
+	case 'S':
+	case 'W':
+	case '0':
+		member = true;
+		// fallthrough
 	case 'C':
 	case 'G':
 	case 'K':
 		*storage_class = "volatile";
 		break;
+	case 'T':
+	case 'X':
+	case '1':
+		member = true;
+		// fallthrough
 	case 'D':
 	case 'H':
 	case 'L':
 		*storage_class = "const volatile";
 		break;
+	case 'M': case 'N': case 'O': case 'P': // __based()
+	case '2': case '3': case '4': case '5': // __based() Member
+		// TODO
+		return eDemanglerErrUnsupportedMangling;
 	default:
 		return eDemanglerErrUncorrectMangledSymbol;
+	}
+	if (is_member) {
+		*is_member = member;
 	}
 	return eDemanglerErrOK;
 }
@@ -1588,7 +1676,7 @@ static EDemanglerErr parse_data_type(const char *sym, SDataType *data_type, size
 
 		curr_pos += i;
 		curr_pos += get_ptr_modifier (*curr_pos, &modifier);
-		if (get_storage_class (*curr_pos, &storage_class) != eDemanglerErrOK) {
+		if (get_storage_class (*curr_pos, &storage_class, NULL) != eDemanglerErrOK) {
 			free (tmp);
 			return eDemanglerErrUncorrectMangledSymbol;
 		}
@@ -1608,7 +1696,7 @@ static EDemanglerErr parse_data_type(const char *sym, SDataType *data_type, size
 	case '7': // compiler generated static
 		if (data_type) {
 			curr_pos += get_ptr_modifier (*curr_pos, &modifier);
-			if (get_storage_class (*curr_pos, &storage_class) != eDemanglerErrOK) {
+			if (get_storage_class (*curr_pos, &storage_class, NULL) != eDemanglerErrOK) {
 				return eDemanglerErrUncorrectMangledSymbol;
 			}
 			curr_pos++;
@@ -1678,30 +1766,64 @@ static EDemanglerErr parse_function_type(const char *sym, SDataType *data_type,
 
 	/* Functions */
 	switch (*curr_pos++) {
+	case '$': {
+		switch (*curr_pos++) {
+		case '0':
+		case '1':
+			data_type->left = "[thunk]:private: virtual";
+			break;
+		case '2':
+		case '3':
+			data_type->left = "[thunk]:protected: virtual";
+			break;
+		case '4':
+		case '5':
+			data_type->left = "[thunk]:public: virtual";
+			break;
+		default:
+			return eDemanglerErrUncorrectMangledSymbol;
+		}
+		SStateInfo state;
+		init_state_struct (&state, curr_pos);
+		char *a = get_num (&state);
+		char *b = get_num (&state);
+		if (!a || !b) {
+			return eDemanglerErrUncorrectMangledSymbol;
+		}
+		data_type->right = r_str_newf ("`vtordisp{%s, %s}'", a, b);
+		free (a);
+		free (b);
+		if (!data_type->right) {
+			return eDemanglerErrMemoryAllocation;
+		}
+		*is_implicit_this_pointer = true;
+		curr_pos += state.amount_of_read_chars;
+		break;
+	}
 	SET_ACCESS_MODIFIER ('A', is_implicit_this_pointer, "private");
 	SET_ACCESS_MODIFIER ('B', is_implicit_this_pointer, "private");
 	SET_ACCESS_MODIFIER ('C', is_static, "private: static");
 	SET_ACCESS_MODIFIER ('D', is_static, "private: static");
 	SET_ACCESS_MODIFIER ('E', is_implicit_this_pointer, "private virtual");
 	SET_ACCESS_MODIFIER ('F', is_implicit_this_pointer, "private virtual");
-	SET_THUNK_MODIFIER ('G', "[thunk]:private virtual");
-	SET_THUNK_MODIFIER ('H', "[thunk]:private virtual");
+	SET_THUNK_MODIFIER ('G', "[thunk]:private: virtual");
+	SET_THUNK_MODIFIER ('H', "[thunk]:private: virtual");
 	SET_ACCESS_MODIFIER ('I', is_implicit_this_pointer, "protected");
 	SET_ACCESS_MODIFIER ('J', is_implicit_this_pointer, "protected");
 	SET_ACCESS_MODIFIER ('K', is_static, "protected: static");
 	SET_ACCESS_MODIFIER ('L', is_static, "protected: static");
 	SET_ACCESS_MODIFIER ('M', is_implicit_this_pointer, "protected virtual");
 	SET_ACCESS_MODIFIER ('N', is_implicit_this_pointer, "protected virtual");
-	SET_THUNK_MODIFIER ('O', "[thunk]:protected virtual");
-	SET_THUNK_MODIFIER ('P', "[thunk]:protected virtual");
+	SET_THUNK_MODIFIER ('O', "[thunk]:protected: virtual");
+	SET_THUNK_MODIFIER ('P', "[thunk]:protected: virtual");
 	SET_ACCESS_MODIFIER ('Q', is_implicit_this_pointer, "public");
 	SET_ACCESS_MODIFIER ('R', is_implicit_this_pointer, "public");
 	SET_ACCESS_MODIFIER ('S', is_static, "public: static");
 	SET_ACCESS_MODIFIER ('T', is_static, "public: static");
 	SET_ACCESS_MODIFIER ('U', is_implicit_this_pointer, "public virtual");
 	SET_ACCESS_MODIFIER ('V', is_implicit_this_pointer, "public virtual");
-	SET_THUNK_MODIFIER ('W', "[thunk]:public virtual");
-	SET_THUNK_MODIFIER ('X', "[thunk]:public virtual");
+	SET_THUNK_MODIFIER ('W', "[thunk]:public: virtual");
+	SET_THUNK_MODIFIER ('X', "[thunk]:public: virtual");
 	case 'Y': // near
 	case 'Z': // far
 		break;
@@ -1758,7 +1880,7 @@ static EDemanglerErr parse_function(const char *sym, STypeCodeStr *type_code_str
 
 	// member function access code
 	if (is_implicit_this_pointer) {
-		err = get_storage_class (*curr_pos++, &memb_func_access_code);
+		err = get_storage_class (*curr_pos++, &memb_func_access_code, NULL);
 		if (err != eDemanglerErrOK) {
 			goto parse_function_err;
 		}
@@ -1781,7 +1903,7 @@ static EDemanglerErr parse_function(const char *sym, STypeCodeStr *type_code_str
 
 	// get storage class code for return
 	if (*curr_pos == '?') {
-		err = get_storage_class (*++curr_pos, &memb_func_access_code);
+		err = get_storage_class (*++curr_pos, &memb_func_access_code, NULL);
 		if (err != eDemanglerErrOK) {
 			goto parse_function_err;
 		}
@@ -1811,7 +1933,7 @@ static EDemanglerErr parse_function(const char *sym, STypeCodeStr *type_code_str
 
 	if (*data_type.left) {
 		copy_string (&func_str, data_type.left, 0);
-		if (!strstr (data_type.left, "static")) {
+		if (!strstr (data_type.left, "static") && !strstr (data_type.left, "[thunk]")) {
 			copy_string (&func_str, ": ", 0);
 		} else {
 			copy_string (&func_str, " ", 0);
@@ -1926,7 +2048,7 @@ static EDemanglerErr parse_microsoft_mangled_name(const char *sym, char **demang
 		*demangled_name = r_str_append (*demangled_name, data_type.right);
 		free (data_type.left);
 		free (data_type.right);
-	} else if (isalpha (*curr_pos)) {
+	} else if (isalpha (*curr_pos) || *curr_pos == '$') {
 		err = parse_function (curr_pos, &type_code_str, demangled_name, &len);
 		curr_pos += len;
 	} else {
@@ -1948,7 +2070,7 @@ static EDemanglerErr parse_microsoft_rtti_mangled_name(const char *sym, char **d
 	if (chars_read) {
 		*chars_read = 0;
 	}
-	err = get_storage_class (*sym++, &storage);
+	err = get_storage_class (*sym++, &storage, NULL);
 	if (err != eDemanglerErrOK) {
 		return err;
 	}
